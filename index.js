@@ -166,25 +166,4 @@ client.on('message', function (topic, message) {
       const device = topic.split("/")[1];
       gotDeviceResponse(device, message);
     }
-  })
-
-/*
-
-const task = new Task('simple task', () => {
-	console.log('Task triggered');
-});
-
-const  = new SimpleIntervalJob(
-	{ seconds: 15, runImmediately: true },
-	task,
-    { id: 'id_1' }
-);
-
-let file = fs.readFileSync("/Users/aiden/pixlet/examples/bitcoin.webp");
-let buf = new Uint8Array(file);
-
-let bufPos = 0;
-let chunkSize = 9950;
-let hasSentLength = false;
-
-*/
+})
