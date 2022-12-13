@@ -2,6 +2,11 @@
 # yarn lockfile v1
 
 
+"@pipeletteio/nop@^1.0.0":
+  version "1.0.5"
+  resolved "https://registry.yarnpkg.com/@pipeletteio/nop/-/nop-1.0.5.tgz#ff00e2d9c30e38b8143ff0761c8658524372c76a"
+  integrity sha512-ZnSPIltu/KFPTJXRpeoLGgtJZbUjmImx8n1AP6fWQ5RgxWfiF5EcbNGUA6VZglQ/SOQ+vyvhRTYnffwCCTR46w==
+
 balanced-match@^1.0.0:
   version "1.0.2"
   resolved "https://registry.yarnpkg.com/balanced-match/-/balanced-match-1.0.2.tgz#e83e3a7e3f300b34cb9d87f615fa0cbf357690ee"
@@ -28,6 +33,13 @@ brace-expansion@^1.1.7:
   dependencies:
     balanced-match "^1.0.0"
     concat-map "0.0.1"
+
+brolog@^1.3.3:
+  version "1.14.2"
+  resolved "https://registry.yarnpkg.com/brolog/-/brolog-1.14.2.tgz#7e9c14710215c5facbf67285266e238628df3ed9"
+  integrity sha512-zUMVJsef1zPUJ9YRKQia1/O8wKOkOWT8gaSfKmISPqg5adGanQ2iQHoEIAJN1glxPYAq8sV1sazwRrMnbpHpBw==
+  dependencies:
+    "@pipeletteio/nop" "^1.0.0"
 
 buffer-from@^1.0.0:
   version "1.1.2"
@@ -274,6 +286,11 @@ string_decoder@^1.1.1:
   dependencies:
     safe-buffer "~5.2.0"
 
+toad-scheduler@^2.1.0:
+  version "2.1.0"
+  resolved "https://registry.yarnpkg.com/toad-scheduler/-/toad-scheduler-2.1.0.tgz#b18278b38fbbe96f780a218ae57e8d38a65b20da"
+  integrity sha512-U/4DIKy61TSxhpSEbk+v/1Q7vK+ysJLdtAbKVtWiHe0UbIXKQ3Uk/Cp5jHnqctM815zzff9KkRQGr9KxAUCWZA==
+
 typedarray@^0.0.6:
   version "0.0.6"
   resolved "https://registry.yarnpkg.com/typedarray/-/typedarray-0.0.6.tgz#867ac74e3864187b1d3d47d996a78ec5c8830777"
@@ -283,6 +300,13 @@ util-deprecate@^1.0.1:
   version "1.0.2"
   resolved "https://registry.yarnpkg.com/util-deprecate/-/util-deprecate-1.0.2.tgz#450d4dc9fa70de732762fbd2d4a28981419a0ccf"
   integrity sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==
+
+watchdog@^0.8.17:
+  version "0.8.17"
+  resolved "https://registry.yarnpkg.com/watchdog/-/watchdog-0.8.17.tgz#515596a0d413b8a2a2a3ebcfeb142a0dda28b438"
+  integrity sha512-RHxxLKqtggCGapGIng8OBOzebF9rx2ucl4bT36mj7GkipcIzj4Rhg0nlcP0RpMHtC8Gys4a5F9/DXz/qYIa0WQ==
+  dependencies:
+    brolog "^1.3.3"
 
 wrappy@1:
   version "1.0.2"
