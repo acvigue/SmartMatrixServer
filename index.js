@@ -18,12 +18,17 @@ let config = {
             {
                 path: "/Users/aiden/pixlet/examples/bitcoin.webp",
                 name: "bitcoin",
-                duration: 60
+                duration: 10
             },
             {
-                path: "/Users/aiden/pixlet/examples/bitcoin.webp",
+                path: "/Users/aiden/maze.webp",
                 name: "bitcoin2",
-                duration: 60
+                duration: 10
+            },
+            {
+                path: "/Users/aiden/fuzzyclock.webp",
+                name: "bitcoin3",
+                duration: 10
             }
         ],
         currentApplet: -1,
@@ -48,7 +53,7 @@ function deviceLoop(device) {
     }
 
     config[device].jobRunning = true;
-    client.publish(`plm/${device}/applet`, "PING");
+    //client.publish(`plm/${device}/applet`, "PING");
 
     const nextAppletNeedsRunAt = config[device].currentAppletStartedAt + (config[device].schedule[config[device].currentApplet+1].duration * 1000);
 
