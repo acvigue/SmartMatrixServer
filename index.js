@@ -16,7 +16,7 @@ let config = {
     "20E7F8": {
         schedule: [
             {
-                path: "/Users/aiden/pixlet/examples/bitcoin.webp",
+                path: "/Users/aiden/applet-sender/test.webp",
                 name: "bitcoin",
                 duration: 10
             },
@@ -53,25 +53,22 @@ function deviceLoop(device) {
     }
 
     config[device].jobRunning = true;
-    //client.publish(`plm/${device}/applet`, "PING");
+    client.publish(`plm/${device}/applet`, "PING");
 
     const nextAppletNeedsRunAt = config[device].currentAppletStartedAt + (config[device].schedule[config[device].currentApplet+1].duration * 1000);
 
     if(Date.now() > nextAppletNeedsRunAt && !config[device].sendingStatus.isCurrentlySending) {
-        console.log("send next applet");
         config[device].currentApplet++;
 
         const applet = config[device].schedule[config[device].currentApplet];
         config[device].sendingStatus.isCurrentlySending = true;
-
-        console.log(applet);
         
         let file = fs.readFileSync(applet.path);
         config[device].sendingStatus.buf = new Uint8Array(file);
         config[device].sendingStatus.currentBufferPos = 0;
         config[device].sendingStatus.hasSentLength = false;
 
-        client.publish(`plm/${device}/applet`, "START");
+        client.publish(`plm/${device}/rx`, "START");
 
         config[device].currentAppletStartedAt = Date.now();
         if(config[device].currentApplet >= (config[device].schedule.length - 1)) {
@@ -84,42 +81,42 @@ function deviceLoop(device) {
 
 function gotDeviceResponse(device, message) {
     config[device].offlineWatchdog.feed();
-    console.log(device, message.toString());
     if(message == "OK") {
         if(config[device].sendingStatus.currentBufferPos <= config[device].sendingStatus.buf.length) {
             if(config[device].sendingStatus.hasSentLength == false) {
                 config[device].sendingStatus.hasSentLength = true;
-                client.publish(`plm/${device}/applet`, config[device].sendingStatus.buf.length.toString());
+                client.publish(`plm/${device}/rx`, config[device].sendingStatus.buf.length.toString());
             } else {
                 let chunk = config[device].sendingStatus.buf.slice(config[device].sendingStatus.currentBufferPos, config[device].sendingStatus.currentBufferPos+chunkSize);
                 config[device].sendingStatus.currentBufferPos += chunkSize;
-                client.publish(`plm/${device}/applet`, chunk);
+                client.publish(`plm/${device}/rx`, chunk);
             }
         } else {
-            client.publish(`plm/${device}/applet`, "FINISH");
+            client.publish(`plm/${device}/rx`, "FINISH");
         }
     } else {
         if(message == "PUSHED") {
             console.log("message successfully pushed to device...");
-            config[device].sendingStatus.isCurrentlySending = false;
         } else if(message == "DECODE_ERROR") {
             console.log("message unsuccessfully pushed to device...");
-            config[device].sendingStatus.isCurrentlySending = false;
         } else if(message == "DEVICE_BOOT" || message == "PONG") {
             console.log("device is online!");
-            config[device].connected = true;
         } else if(message == "TIMEOUT") {
             console.log("device rx timeout!");
-            config[device].sendingStatus.isCurrentlySending = false;
         }
+        config[device].connected = true;
+        config[device].sendingStatus.isCurrentlySending = false;
+        config[device].sendingStatus.hasSentLength = false;
+        config[device].sendingStatus.currentBufferPos = 0;
+        config[device].sendingStatus.buf = null;
     }
 }
 
 client.on('connect', function () {
     for(const [device, _] of Object.entries(config)) {
-        client.subscribe(`plm/${device}/applet/rts`, function (err) {
+        client.subscribe(`plm/${device}/tx`, function (err) {
             if (!err) {
-                client.publish(`plm/${device}/applet`, "PING");
+                client.publish(`plm/${device}/rx`, "PING");
                 
                 //Setup job to work on device.
                 const task = new Task('simple task', () => {
@@ -138,6 +135,10 @@ client.on('connect', function () {
                 dog.on('reset', () => {
                     console.log(`Device ${device} disconnected.`);
                     config[device].connected = false;
+                    config[device].sendingStatus.isCurrentlySending = false;
+                    config[device].sendingStatus.hasSentLength = false;
+                    config[device].sendingStatus.currentBufferPos = 0;
+                    config[device].sendingStatus.buf = null;
                 })
                 dog.on('feed',  () => {
                     config[device].connected = true;
@@ -167,7 +168,7 @@ client.on("close", function() {
 });
 
 client.on('message', function (topic, message) {
-    if(topic.indexOf("rts") != -1) {
+    if(topic.indexOf("tx") != -1) {
       const device = topic.split("/")[1];
       gotDeviceResponse(device, message);
     }
