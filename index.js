@@ -16,17 +16,17 @@ let config = {
     "20E7F8": {
         schedule: [
             {
-                path: "/Users/aiden/applet-sender/test.webp",
+                path: "test.webp",
                 name: "bitcoin",
                 duration: 10
             },
             {
-                path: "/Users/aiden/maze.webp",
+                path: "maze.webp",
                 name: "bitcoin2",
                 duration: 10
             },
             {
-                path: "/Users/aiden/fuzzyclock.webp",
+                path: "fuzzyclock.webp",
                 name: "bitcoin3",
                 duration: 10
             }
