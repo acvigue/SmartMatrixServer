@@ -46,10 +46,12 @@ let config = {
                         lat: 37.206629,
                         lng: -79.979439
                     },
+                    origin_label: "Home",
                     destination: {
                         lat: 37.274686,
                         lng: -80.027666
-                    }
+                    },
+                    destination_label: "Burton"
                 }
             },
         ],
