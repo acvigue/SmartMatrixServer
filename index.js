@@ -3,6 +3,7 @@ const fs = require('fs');
 const { ToadScheduler, SimpleIntervalJob, Task } = require('toad-scheduler');
 const { Watchdog } = require("watchdog");
 const { exit } = require('process');
+const {spawn} = require("child_process");
 
 const client  = mqtt.connect('**REDACTED**', {
     username: "**REDACTED**",
@@ -16,20 +17,41 @@ let config = {
     "20E7F8": {
         schedule: [
             {
-                path: "test.webp",
-                name: "bitcoin",
-                duration: 10
+                name: "oura_ring",
+                config: {
+                    apikey: "**REDACTED**",
+                    days: "14"
+                },
+                duration: 15
             },
             {
-                path: "maze.webp",
-                name: "bitcoin2",
-                duration: 10
+                name: "day_night_map",
+                duration: 15
             },
             {
-                path: "fuzzyclock.webp",
-                name: "bitcoin3",
-                duration: 10
-            }
+                name: "five_somewhere",
+                duration: 15
+            },
+            {
+                name: "unsplash",
+                duration: 15
+            },
+            {
+                name: "traffic",
+                duration: 15,
+                config: {
+                    bing_auth: "ArJfQrqgi2E9A5ArjLdJTeoQkjnSQUkGm_-9qw8_G26ASlYp900ItPCT2CLy-k_6",
+                    mode: "Driving",
+                    origin: {
+                        lat: 37.206629,
+                        lng: -79.979439
+                    },
+                    destination: {
+                        lat: 37.274686,
+                        lng: -80.027666
+                    }
+                }
+            },
         ],
         currentApplet: -1,
         currentAppletStartedAt: 0,
@@ -47,7 +69,7 @@ let config = {
     }
 };
 
-function deviceLoop(device) {
+async function deviceLoop(device) {
     if(config[device].jobRunning || config[device].connected == false) {
         return;
     }
@@ -63,8 +85,19 @@ function deviceLoop(device) {
         const applet = config[device].schedule[config[device].currentApplet];
         config[device].sendingStatus.isCurrentlySending = true;
         
-        let file = fs.readFileSync(applet.path);
-        config[device].sendingStatus.buf = new Uint8Array(file);
+        let imageData = await render(applet.name, applet.config ?? {}).catch((e) => {
+            //upon failure, skip applet and retry.
+            config[device].currentApplet++;
+            if(config[device].currentApplet >= (config[device].schedule.length - 1)) {
+                config[device].currentApplet = -1;
+            }
+            setTimeout(() => {
+                deviceLoop(device);
+            }, 5);
+            return;
+        })
+
+        config[device].sendingStatus.buf = new Uint8Array(imageData);
         config[device].sendingStatus.currentBufferPos = 0;
         config[device].sendingStatus.hasSentLength = false;
 
@@ -95,9 +128,7 @@ function gotDeviceResponse(device, message) {
             client.publish(`plm/${device}/rx`, "FINISH");
         }
     } else {
-        if(message == "PUSHED") {
-            console.log("message successfully pushed to device...");
-        } else if(message == "DECODE_ERROR") {
+        if(message == "DECODE_ERROR") {
             console.log("message unsuccessfully pushed to device...");
         } else if(message == "DEVICE_BOOT" || message == "PONG") {
             console.log("device is online!");
@@ -110,6 +141,34 @@ function gotDeviceResponse(device, message) {
         config[device].sendingStatus.currentBufferPos = 0;
         config[device].sendingStatus.buf = null;
     }
+}
+
+function render(name, config) {
+    return new Promise(async (resolve, reject) => {
+        let configValues = [];
+        for(const [k, v] of Object.entries(config)) {
+            if(typeof v === 'object') {
+                configValues.push(`${k}=${JSON.stringify(v)}`);
+            } else {
+                configValues.push(`${k}=${v}`);
+            }
+        }
+        let outputError = "";
+
+        const renderCommand = spawn('pixlet', ['render', `applets/${name}/${name}.star`,...configValues,'-o',`applets/${name}/${name}.webp`]);
+    
+        renderCommand.stdout.on('data', (data) => {
+            outputError += data;
+        })
+    
+        renderCommand.on('close', (code) => {
+            if(code == 0) {
+                resolve(fs.readFileSync(`applets/${name}/${name}.webp`));
+            } else {
+                reject(outputError);
+            }
+        });
+    })
 }
 
 client.on('connect', function () {
