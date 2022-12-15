@@ -22,23 +22,19 @@ let config = {
                     apikey: "**REDACTED**",
                     days: "14"
                 },
-                duration: 15
+                duration: 10
             },
             {
                 name: "day_night_map",
-                duration: 15
+                duration: 5
             },
             {
                 name: "five_somewhere",
-                duration: 15
-            },
-            {
-                name: "unsplash",
-                duration: 15
+                duration: 5
             },
             {
                 name: "traffic",
-                duration: 15,
+                duration: 5,
                 config: {
                     bing_auth: "ArJfQrqgi2E9A5ArjLdJTeoQkjnSQUkGm_-9qw8_G26ASlYp900ItPCT2CLy-k_6",
                     mode: "Driving",
@@ -64,6 +60,14 @@ let config = {
                         timezone: "America/New_York"
                     },
                     color_scheme: 8
+                }
+            },
+            {
+                name: "datadogmonitors",
+                duration: 10,
+                config: {
+                    api_key: "**REDACTED**",
+                    app_key: "**REDACTED**"
                 }
             }
         ],
