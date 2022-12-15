@@ -54,6 +54,18 @@ let config = {
                     destination_label: "Burton"
                 }
             },
+            {
+                name: "weather_map",
+                duration: 15,
+                config: {
+                    location: {
+                        lat: 37.206629,
+                        lng: -79.979439,
+                        timezone: "America/New_York"
+                    },
+                    color_scheme: 8
+                }
+            }
         ],
         currentApplet: -1,
         currentAppletStartedAt: 0,
