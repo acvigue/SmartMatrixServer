@@ -155,7 +155,7 @@ function render(name, config) {
         }
         let outputError = "";
 
-        const renderCommand = spawn('pixlet', ['render', `applets/${name}/${name}.star`,...configValues,'-o',`applets/${name}/${name}.webp`]);
+        const renderCommand = spawn('./pixlet', ['render', `applets/${name}/${name}.star`,...configValues,'-o',`applets/${name}/${name}.webp`]);
     
         renderCommand.stdout.on('data', (data) => {
             outputError += data;
