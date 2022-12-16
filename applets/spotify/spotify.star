@@ -7,11 +7,15 @@ load("schema.star", "schema")
 load("time.star", "time")
 
 def songTitle(title):
+    return render.Padding(pad=(2,0,0,0), child=render.Marquee(
+        width=60,
+        child=render.Padding(pad=(0,2,0,0), child=render.Text(title, color="#1db954")),
+    ))
+    
+def detailText(name):
     return render.Marquee(
-        width=64,
-        child=render.Text("this won't fit in 64 pixels"),
-        offset_start=5,
-        offset_end=32,
+        width=41,
+        child=render.Text(name.upper()),
     )
 
 def errorView(message):
@@ -22,74 +26,73 @@ def errorView(message):
     )
 
 def main(config):
-    if 'apikey' not in config:
-        return render.Root(child=errorView("no API key"))
+    if 'refresh_token' not in config:
+        return render.Root(child=errorView("no refresh token"))
 
-    now = time.now()
-    from_date = (now - time.parse_duration(str(int(config['days'])*24)+'h')).format("2006-01-02")
-    to_date = now.format("2006-01-02")
+    if 'client_id' not in config:
+        return render.Root(child=errorView("no client id"))
 
-    sleep_data = None
-    sleep_dto = cache.get("sleep_data")
-    if sleep_dto != None:
-        print("Hit! Using cached sleep data.")
-        sleep_data = json.decode(sleep_dto)
-    else:
-        print("Miss! Calling Sleep API.")
-        rep = http.get('https://api.ouraring.com/v2/usercollection/daily_sleep?start_date='+from_date+'&'+'end_date='+to_date, headers={"Authorization": "Bearer " + config['apikey']})
+    if 'client_secret' not in config:
+        return render.Root(child=errorView("no client secret"))
+
+    auth_dto = cache.get("auth_token")
+    auth_token = None
+    if auth_dto == None:
+        print("Getting Spotify access token")
+        refresh_body={
+            'grant_type': 'refresh_token',
+            'refresh_token': config['refresh_token']
+        }
+
+        rep = http.post('https://accounts.spotify.com/api/token', form_body=refresh_body, auth=(config["client_id"], config["client_secret"]))
         if rep.status_code != 200:
-            fail("Sleep request failed with status:", rep.status_code)
-        sleep_data = rep.json()
-        cache.set("sleep_data", json.encode(sleep_data), ttl_seconds = 1800)
-
-    activity_data = None
-    activity_dto = cache.get("activity_data")
-    if activity_dto != None:
-        print("Hit! Using cached activity data.")
-        activity_data = json.decode(activity_dto)
+            return render.Root(
+                child=errorView("Auth request failed.")
+            )
+        auth_token = rep.json()
+        cache.set("auth_token", json.encode(auth_token), ttl_seconds=3600)
     else:
-        print("Miss! Calling activity API.")
-        rep = http.get('https://api.ouraring.com/v2/usercollection/daily_activity?start_date='+from_date+'&'+'end_date='+to_date, headers={"Authorization": "Bearer " + config['apikey']})
-        if rep.status_code != 200:
-            fail("activity request failed with status:", rep.status_code)
-        activity_data = rep.json()
-        cache.set("activity_data", json.encode(activity_data), ttl_seconds = 1800)
+        auth_token = json.decode(auth_dto)
+    access_token = auth_token["access_token"]
 
-    readiness_data = None
-    readiness_dto = cache.get("readiness_data")
-    if readiness_dto != None:
-        print("Hit! Using cached readiness data.")
-        readiness_data = json.decode(readiness_dto)
+    rep = http.get('https://api.spotify.com/v1/me/player/currently-playing', headers={
+        "Authorization": "Bearer " + access_token
+    })
+    if rep.status_code != 200:
+        print("skip_execution")
+        return render.Root(
+                child=errorView("Skip execution!")
+            )
+    track = rep.json()
+
+    trackTitle = track["item"]["name"]
+    trackImage = cache.get(track["item"]["album"]["images"][0]["url"])
+    if trackImage == None:
+        rep = http.get(track["item"]["album"]["images"][0]["url"])
+        trackImage = rep.body()
+        cache.set(track["item"]["album"]["images"][0]["url"], trackImage)
+
+    artist = track["item"]["artists"][0]["name"]
+    album = track["item"]["album"]["name"]
+
+    lastColumn = None
+    if album != trackTitle:
+        lastColumn = [detailText(artist), render.Padding(pad=(0,1,0,0), child=detailText(album))]
     else:
-        print("Miss! Calling readiness API.")
-        rep = http.get('https://api.ouraring.com/v2/usercollection/daily_readiness?start_date='+from_date+'&'+'end_date='+to_date, headers={"Authorization": "Bearer " + config['apikey']})
-        if rep.status_code != 200:
-            fail("readiness request failed with status:", rep.status_code)
-        readiness_data = rep.json()
-        cache.set("readiness_data", json.encode(readiness_data), ttl_seconds = 1800)
-
-    #Populate array of last 7 scores.
-    sleep_scores = []
-    for day in sleep_data["data"]:
-        sleep_scores.append(int(day["score"]))
-
-    activity_scores = []
-    for day in activity_data["data"]:
-        activity_scores.append(int(day["score"]))
-
-    readiness_scores = []
-    for day in readiness_data["data"]:
-        readiness_scores.append(int(day["score"]))
+        lastColumn = [detailText(artist)]
 
     return render.Root(
-        delay = 2000,
-        child = render.Animation(
-            children = [
-                readinessView(readiness_scores, activity_scores, sleep_scores),
-                activityView(readiness_scores, activity_scores, sleep_scores),
-                sleepView(readiness_scores, activity_scores, sleep_scores)
-            ],
-        ),
+        child=render.Column(children=[
+            songTitle(trackTitle.upper()),
+            render.Padding(pad=(2,2,0,0), child=
+                render.Row(children=[
+                    render.Image(src=trackImage, height=17, width=17),
+                    render.Padding(pad=(2,0,0,0), child=
+                        render.Column(children=lastColumn)
+                    )
+                ])
+            )
+        ])
     )
 
 def get_schema():
@@ -97,17 +100,22 @@ def get_schema():
         version = "1",
         fields = [
             schema.Text(
-                id = "apikey",
-                name = "Oura PAT",
-                desc = "Oura API Personal Access Token",
+                id = "refresh_token",
+                name = "Spotify Refresh Token",
+                desc = "",
                 icon = "user",
             ),
             schema.Text(
-                id = "days",
-                name = "Graph Lookback",
-                desc = "Previous days to show on graph",
-                icon = "calendar",
-                default = "7"
+                id = "client_id",
+                name = "Spotify App Client ID",
+                desc = "",
+                icon = "key"
+            ),
+            schema.Text(
+                id = "client_secret",
+                name = "Spotify App Client Secret",
+                desc = "",
+                icon = "key"
             )
         ],
     )

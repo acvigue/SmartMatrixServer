@@ -17,6 +17,15 @@ let config = {
     "20E7F8": {
         schedule: [
             {
+                name: "spotify",
+                config: {
+                    refresh_token: "**REDACTED**",
+                    client_id: "**REDACTED**",
+                    client_secret: "**REDACTED**"
+                },
+                duration: 10
+            },
+            {
                 name: "oura_ring",
                 config: {
                     apikey: "**REDACTED**",
@@ -215,7 +224,7 @@ client.on('connect', function () {
                 });
                 
                 const job = new SimpleIntervalJob(
-                    { seconds: 1, runImmediately: true },
+                    { seconds: 5, runImmediately: true },
                     task,
                     { id: `loop_${device}` }
                 );
