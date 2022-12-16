@@ -96,13 +96,16 @@ let config = {
     }
 };
 
+async function devicePing(device) {
+    client.publish(`plm/${device}/applet`, "PING");
+}
+
 async function deviceLoop(device) {
     if(config[device].jobRunning || config[device].connected == false) {
         return;
     }
 
     config[device].jobRunning = true;
-    client.publish(`plm/${device}/applet`, "PING");
 
     const nextAppletNeedsRunAt = config[device].currentAppletStartedAt + (config[device].schedule[config[device].currentApplet+1].duration * 1000);
 
@@ -203,7 +206,7 @@ function render(name, config) {
         }, 10000);
 
         renderCommand.stdout.on('data', (data) => {
-            console.log(data)
+            outputError += data
         })
     
         renderCommand.on('close', (code) => {
@@ -215,6 +218,7 @@ function render(name, config) {
                     reject("Applet requested to skip execution...");
                 }
             } else {
+                console.error(outputError);
                 reject("Applet failed to render.");
             }
         });
@@ -238,9 +242,21 @@ client.on('connect', function () {
                     { id: `loop_${device}` }
                 );
 
-                scheduler.addSimpleIntervalJob(job);
+                //Setup job to ping device.
+                const ping_task = new Task('ping task', () => {
+                    deviceLoop(device)
+                });
+                
+                const ping_job = new SimpleIntervalJob(
+                    { seconds: 10, runImmediately: true },
+                    ping_task,
+                    { id: `ping_${device}` }
+                );
 
-                const dog = new Watchdog(60000);
+                scheduler.addSimpleIntervalJob(job);
+                scheduler.addSimpleIntervalJob(ping_job);
+
+                const dog = new Watchdog(30000);
                 dog.on('reset', () => {
                     console.log(`Device ${device} disconnected.`);
                     config[device].connected = false;
