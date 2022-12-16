@@ -200,7 +200,7 @@ function render(name, config) {
             } catch (e) {
               console.log('Could not kill process ^');
             }
-        }, 5000);
+        }, 10000);
 
         renderCommand.stdout.on('data', (data) => {
             console.log(data)
