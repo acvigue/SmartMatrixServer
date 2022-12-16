@@ -70,7 +70,7 @@ def main(config):
     if trackImage == None:
         rep = http.get(track["item"]["album"]["images"][0]["url"])
         trackImage = rep.body()
-        cache.set(track["item"]["album"]["images"][0]["url"], trackImage)
+        cache.set(track["item"]["album"]["images"][0]["url"], trackImage, ttl_seconds=600)
 
     artist = track["item"]["artists"][0]["name"]
     album = track["item"]["album"]["name"]
