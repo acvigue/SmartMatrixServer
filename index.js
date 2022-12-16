@@ -132,7 +132,6 @@ async function deviceLoop(device) {
 
             client.publish(`plm/${device}/rx`, "START");
 
-            config[device].currentAppletStartedAt = Date.now();
             if(config[device].currentApplet >= (config[device].schedule.length - 1)) {
                 config[device].currentApplet = -1;
             }
@@ -158,8 +157,8 @@ function gotDeviceResponse(device, message) {
             client.publish(`plm/${device}/rx`, "FINISH");
         }
     } else {
-        if(message == "DECODE_ERROR") {
-            console.log("message unsuccessfully pushed to device...");
+        if(message == "DECODE_ERROR" || message == "PUSHED") {
+            config[device].currentAppletStartedAt = Date.now();
         } else if(message == "DEVICE_BOOT" || message == "PONG") {
             console.log("device is online!");
         } else if(message == "TIMEOUT") {
