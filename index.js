@@ -192,7 +192,7 @@ function render(name, config) {
         }
         fs.writeFileSync(`applets/${name}/${name}.tmp.star`, unedited)
 
-        const renderCommand = spawn('pixlet', ['render', `applets/${name}/${name}.tmp.star`,...configValues,'-o',`applets/${name}/${name}.webp`]);
+        const renderCommand = spawn('./pixlet', ['render', `applets/${name}/${name}.tmp.star`,...configValues,'-o',`applets/${name}/${name}.webp`]);
     
         renderCommand.stdout.on('data', (data) => {
             outputError += data;
