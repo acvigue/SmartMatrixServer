@@ -186,7 +186,7 @@ function render(name, config) {
         let outputError = "";
         let unedited = fs.readFileSync(`applets/${name}/${name}.star`).toString()
         if(unedited.indexOf(`load("cache.star", "cache")`) != -1) {
-            const redis_connect_string = `cache_redis.connect("**REDACTED**", "default", "**REDACTED**", 11389794)`
+            const redis_connect_string = `cache_redis.connect("**REDACTED**", "default", "**REDACTED**")`
             unedited = unedited.replaceAll(`load("cache.star", "cache")`, `load("cache_redis.star", "cache_redis")\n${redis_connect_string}`);
             unedited = unedited.replaceAll(`cache.`, `cache_redis.`);
         }
