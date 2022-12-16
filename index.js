@@ -11,7 +11,7 @@ const client  = mqtt.connect('**REDACTED**', {
 });
 
 const scheduler = new ToadScheduler();
-let chunkSize = 9950;
+let chunkSize = 19950;
 
 let config = {
     "20E7F8": {
@@ -102,28 +102,31 @@ async function deviceLoop(device) {
 
         const applet = config[device].schedule[config[device].currentApplet];
         config[device].sendingStatus.isCurrentlySending = true;
-        
+
         let imageData = await render(applet.name, applet.config ?? {}).catch((e) => {
             //upon failure, skip applet and retry.
+            console.log(e);
             config[device].currentApplet++;
+            config[device].sendingStatus.isCurrentlySending = false;
             if(config[device].currentApplet >= (config[device].schedule.length - 1)) {
                 config[device].currentApplet = -1;
             }
             setTimeout(() => {
                 deviceLoop(device);
             }, 5);
-            return;
         })
 
-        config[device].sendingStatus.buf = new Uint8Array(imageData);
-        config[device].sendingStatus.currentBufferPos = 0;
-        config[device].sendingStatus.hasSentLength = false;
+        if(config[device].sendingStatus.isCurrentlySending) {
+            config[device].sendingStatus.buf = new Uint8Array(imageData);
+            config[device].sendingStatus.currentBufferPos = 0;
+            config[device].sendingStatus.hasSentLength = false;
 
-        client.publish(`plm/${device}/rx`, "START");
+            client.publish(`plm/${device}/rx`, "START");
 
-        config[device].currentAppletStartedAt = Date.now();
-        if(config[device].currentApplet >= (config[device].schedule.length - 1)) {
-            config[device].currentApplet = -1;
+            config[device].currentAppletStartedAt = Date.now();
+            if(config[device].currentApplet >= (config[device].schedule.length - 1)) {
+                config[device].currentApplet = -1;
+            }
         }
     }
 
@@ -172,8 +175,15 @@ function render(name, config) {
             }
         }
         let outputError = "";
+        let unedited = fs.readFileSync(`applets/${name}/${name}.star`).toString()
+        if(unedited.indexOf(`load("cache.star", "cache")`) != -1) {
+            const redis_connect_string = `cache_redis.connect("**REDACTED**", "default", "**REDACTED**", 11389794)`
+            unedited = unedited.replaceAll(`load("cache.star", "cache")`, `load("cache_redis.star", "cache_redis")\n${redis_connect_string}`);
+            unedited = unedited.replaceAll(`cache.`, `cache_redis.`);
+        }
+        fs.writeFileSync(`applets/${name}/${name}.tmp.star`, unedited)
 
-        const renderCommand = spawn('./pixlet', ['render', `applets/${name}/${name}.star`,...configValues,'-o',`applets/${name}/${name}.webp`]);
+        const renderCommand = spawn('./pixlet', ['render', `applets/${name}/${name}.tmp.star`,...configValues,'-o',`applets/${name}/${name}.webp`]);
     
         renderCommand.stdout.on('data', (data) => {
             outputError += data;
@@ -181,7 +191,11 @@ function render(name, config) {
     
         renderCommand.on('close', (code) => {
             if(code == 0) {
-                resolve(fs.readFileSync(`applets/${name}/${name}.webp`));
+                if(outputError.indexOf("skip_execution") == -1) {
+                    resolve(fs.readFileSync(`applets/${name}/${name}.webp`));
+                } else {
+                    reject("Applet requested to skip execution...");
+                }
             } else {
                 reject(outputError);
             }
@@ -201,7 +215,7 @@ client.on('connect', function () {
                 });
                 
                 const job = new SimpleIntervalJob(
-                    { seconds: 5, runImmediately: true },
+                    { seconds: 1, runImmediately: true },
                     task,
                     { id: `loop_${device}` }
                 );
