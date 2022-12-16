@@ -193,11 +193,21 @@ function render(name, config) {
 
         const renderCommand = spawn('./pixlet', ['render', `applets/${name}/${name}.tmp.star`,...configValues,'-o',`applets/${name}/${name}.webp`]);
     
+        var timeout = setTimeout(() => {
+            console.log(`Rendering timed out for ${name}`);
+            try {
+              process.kill(-renderCommand.pid, 'SIGKILL');
+            } catch (e) {
+              console.log('Could not kill process ^');
+            }
+        }, 5000);
+
         renderCommand.stdout.on('data', (data) => {
-            outputError += data;
+            console.log(data)
         })
     
         renderCommand.on('close', (code) => {
+            clearTimeout(timeout);
             if(code == 0) {
                 if(outputError.indexOf("skip_execution") == -1) {
                     resolve(fs.readFileSync(`applets/${name}/${name}.webp`));
@@ -205,7 +215,7 @@ function render(name, config) {
                     reject("Applet requested to skip execution...");
                 }
             } else {
-                reject(outputError);
+                reject("Applet failed to render.");
             }
         });
     })
