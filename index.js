@@ -34,7 +34,7 @@ let config = {
                 duration: 10
             },
             {
-                name: "day_night_map",
+                name: "word_of_the_day",
                 duration: 5
             },
             {
