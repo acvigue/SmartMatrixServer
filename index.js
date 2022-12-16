@@ -230,7 +230,7 @@ client.on('connect', function () {
 
                 scheduler.addSimpleIntervalJob(job);
 
-                const dog = new Watchdog(30000);
+                const dog = new Watchdog(60000);
                 dog.on('reset', () => {
                     console.log(`Device ${device} disconnected.`);
                     config[device].connected = false;
