@@ -60,7 +60,7 @@ let config = {
                 }
             },
             {
-                name: "weather_map",
+                name: "weather",
                 duration: 15,
                 config: {
                     location: {
@@ -68,7 +68,7 @@ let config = {
                         lng: -79.979439,
                         timezone: "America/New_York"
                     },
-                    color_scheme: 8
+                    jwt: "**REDACTED**"
                 }
             },
             {
