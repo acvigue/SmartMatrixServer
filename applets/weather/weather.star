@@ -66,7 +66,6 @@ def main(config):
         cache.set("currentWeather", json.encode(currentWeather), ttl_seconds=600)
     else:
         currentWeather = json.decode(currentWeather_dto)
-    print(currentWeather)
 
     currentWeatherIcon = currentWeather["currentWeather"]["conditionCode"].lower()
     if currentHour > 18 or currentHour < 6:
@@ -86,8 +85,12 @@ def main(config):
                 render.Text(cToF(currentWeather["currentWeather"]["temperature"]))
             ], cross_align="center"),
             render.Column(children=[
-                render.Text(cToF(currentWeather["forecastDaily"]["days"][0]["temperatureMax"]), color="#F44"),
-                render.Text(cToF(currentWeather["forecastDaily"]["days"][0]["temperatureMin"]), color="#66F")
+                render.Row(children=[
+                    render.Text(cToF(currentWeather["forecastDaily"]["days"][0]["temperatureMin"]), color="#66F"),
+                    render.Text("-"),
+                    render.Text(cToF(currentWeather["forecastDaily"]["days"][0]["temperatureMax"]), color="#F44")
+                ], main_align="space_between"),
+                render.Text(str(int(currentWeather["currentWeather"]["humidity"] * 100)) + "%")
             ], main_align="space_evenly", expanded=True, cross_align="center")
         ], cross_align="center", expanded=True, main_align="space_evenly")
     )
