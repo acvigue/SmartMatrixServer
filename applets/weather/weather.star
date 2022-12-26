@@ -39,7 +39,7 @@ def main(config):
 
     loc = None
     if 'location' in config:
-        loc = config["location"]
+        loc = json.decode(config["location"])
     else:
         loc = {
             "lat": 37.206629,
