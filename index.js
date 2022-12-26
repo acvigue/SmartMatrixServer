@@ -208,6 +208,10 @@ function render(name, config) {
         renderCommand.stdout.on('data', (data) => {
             outputError += data
         })
+
+        renderCommand.stderr.on('data', (data) => {
+            outputError += data
+        })
     
         renderCommand.on('close', (code) => {
             clearTimeout(timeout);
