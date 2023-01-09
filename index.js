@@ -199,9 +199,9 @@ function render(name, config) {
         var timeout = setTimeout(() => {
             console.log(`Rendering timed out for ${name}`);
             try {
-              process.kill(-renderCommand.pid, 'SIGKILL');
+              process.kill(renderCommand.pid, 'SIGKILL');
             } catch (e) {
-              console.log('Could not kill process ^');
+              console.log('Could not kill process ^', e);
             }
         }, 10000);
 
