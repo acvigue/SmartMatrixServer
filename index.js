@@ -248,7 +248,7 @@ client.on('connect', function () {
 
                 //Setup job to ping device.
                 const ping_task = new Task('ping task', () => {
-                    deviceLoop(device)
+                    devicePing(device)
                 });
                 
                 const ping_job = new SimpleIntervalJob(
@@ -260,7 +260,7 @@ client.on('connect', function () {
                 scheduler.addSimpleIntervalJob(job);
                 scheduler.addSimpleIntervalJob(ping_job);
 
-                const dog = new Watchdog(30000);
+                const dog = new Watchdog(60000);
                 dog.on('reset', () => {
                     console.log(`Device ${device} disconnected.`);
                     config[device].connected = false;
