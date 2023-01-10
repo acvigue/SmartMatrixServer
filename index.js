@@ -64,10 +64,6 @@ let config = {
                     api_key: "**REDACTED**",
                     app_key: "**REDACTED**"
                 }
-            },
-            {
-                name: "pleasestandby",
-                duration: 10
             }
         ],
         currentApplet: -1,
@@ -231,7 +227,7 @@ client.on('connect', function () {
                 });
                 
                 const job = new SimpleIntervalJob(
-                    { seconds: 5, runImmediately: true },
+                    { seconds: 1, runImmediately: true },
                     task,
                     { id: `loop_${device}` }
                 );
