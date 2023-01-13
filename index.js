@@ -33,11 +33,22 @@ let config = {
                 duration: 10
             },
             {
+                name: "paraland",
+                duration: 10,
+                config: {
+                    image: "seattle_morning"
+                }
+            },
+            {
                 name: "oura_ring",
                 config: {
                     apikey: "**REDACTED**",
                     days: "14"
                 },
+                duration: 10
+            },
+            {
+                name: "unsplash",
                 duration: 10
             },
             {
@@ -50,6 +61,13 @@ let config = {
                         timezone: "America/New_York"
                     },
                     jwt: "**REDACTED**"
+                }
+            },
+            {
+                name: "paraland",
+                duration: 10,
+                config: {
+                    image: "arizona_day"
                 }
             },
             {

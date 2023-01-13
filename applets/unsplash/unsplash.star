@@ -136,7 +136,7 @@ AAAAAElFTkSuQmCC
 """)
 
 UNSPLASH_URL = "https://api.unsplash.com/photos/random"
-UNSPLASH_ACCESS_KEY = secret.decrypt("AV6+xWcEouhNH5fsxoWNM3TM76UpnbST7Sn/0QRgPNaO9sC647frYR6kdexgwoKgKCTQr0ovkQF3SwJgivV39gCRkhzYAonlY272+8a8P6y/7Ya6cMHmvHM6FybM2k2opEoTnBcOdVzcZVq1ho0fU7KFv4L+g4kgyAVxIkGpFHrU7Tt2MxgifsNcipjt+h9kWg==")
+UNSPLASH_ACCESS_KEY = "8ly_kzkPfljiHj4JyBboPcSB0Y90rQAj5R7Q8yVOnK0"
 
 def main(config):
     image = cache.get("image")
