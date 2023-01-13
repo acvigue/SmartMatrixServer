@@ -18,7 +18,10 @@ let config = {
         schedule: [
             {
                 name: "paraland",
-                duration: 10
+                duration: 10,
+                config: {
+                    image: "arizona_day"
+                }
             },
             {
                 name: "spotify",
@@ -35,14 +38,6 @@ let config = {
                     apikey: "**REDACTED**",
                     days: "14"
                 },
-                duration: 10
-            },
-            {
-                name: "word_of_the_day",
-                duration: 10
-            },
-            {
-                name: "five_somewhere",
                 duration: 10
             },
             {
