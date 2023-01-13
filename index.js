@@ -20,7 +20,7 @@ let config = {
                 name: "paraland",
                 duration: 10,
                 config: {
-                    image: "arizona_day"
+                    image: "seattle_morning"
                 }
             },
             {
