@@ -10,96 +10,50 @@ const client  = mqtt.connect('**REDACTED**', {
     password: "**REDACTED**"
 });
 
+let { CONFIG_FOLDER } = process.env
+if(CONFIG_FOLDER === undefined) {
+    console.log("CONFIG_FOLDER not set, using `/config` ...");
+    CONFIG_FOLDER = "/config";
+}
+
 const scheduler = new ToadScheduler();
 let chunkSize = 39999;
 
-let config = {
-    "20E7F8": {
-        schedule: [
-            {
-                name: "paraland",
-                duration: 10,
-                config: {
-                    image: "north_carolina_morning"
-                }
-            },
-            {
-                name: "spotify",
-                config: {
-                    refresh_token: "**REDACTED**",
-                    client_id: "**REDACTED**",
-                    client_secret: "**REDACTED**"
-                },
-                duration: 10
-            },
-            {
-                name: "paraland",
-                duration: 10,
-                config: {
-                    image: "seattle_morning"
-                }
-            },
-            {
-                name: "oura_ring",
-                config: {
-                    apikey: "**REDACTED**",
-                    days: "14"
-                },
-                duration: 10
-            },
-            {
-                name: "unsplash",
-                duration: 10
-            },
-            {
-                name: "weather",
-                duration: 10,
-                config: {
-                    location: {
-                        lat: 37.206629,
-                        lng: -79.979439,
-                        timezone: "America/New_York"
-                    },
-                    jwt: "**REDACTED**"
-                }
-            },
-            {
-                name: "paraland",
-                duration: 10,
-                config: {
-                    image: "arizona_day"
-                }
-            },
-            {
-                name: "datadogmonitors",
-                duration: 5,
-                config: {
-                    api_key: "**REDACTED**",
-                    app_key: "**REDACTED**"
-                }
-            }
-        ],
-        currentApplet: -1,
-        currentAppletStartedAt: 0,
-        connected: false,
-        sendingStatus: {
-            timed_out: false,
-            retries: 0,
-            currentBufferPos: 0,
-            buf: null,
-            hasSentLength: false,
-            isCurrentlySending: false
-        },
-        jobRunning: false,
-        offlineWatchdog: null
-    }
-};
+let config = {};
 
 async function devicePing(device) {
     client.publish(`plm/${device}/applet`, "PING");
 }
 
 async function deviceLoop(device) {
+    if(!(device in config)) {
+        //try to autodiscover schedule file for device
+        let scheduleFilePath = `CONFIG_FOLDER/${device.toUpperCase()}.json`;
+        if(!fs.existsSync(scheduleFilePath)) {
+            console.log("Schedule file for device does not exist!");
+            return;
+        }
+
+        let schedule = fs.readFileSync(scheduleFilePath);
+
+        config[device] = {
+            currentApplet: -1,
+            currentAppletStartedAt: 0,
+            connected: false,
+            sendingStatus: {
+                timed_out: false,
+                retries: 0,
+                currentBufferPos: 0,
+                buf: null,
+                hasSentLength: false,
+                isCurrentlySending: false
+            },
+            jobRunning: false,
+            offlineWatchdog: null,
+            schedule: JSON.parse(schedule)
+        }
+    }
+
     if(config[device].jobRunning || config[device].connected == false) {
         return;
     }
