@@ -11,7 +11,7 @@ const client  = mqtt.connect('**REDACTED**', {
 });
 
 const scheduler = new ToadScheduler();
-let chunkSize = 19950;
+let chunkSize = 39999;
 
 let config = {
     "20E7F8": {
