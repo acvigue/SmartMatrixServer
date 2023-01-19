@@ -16,6 +16,12 @@ if(CONFIG_FOLDER === undefined) {
     CONFIG_FOLDER = "/config";
 }
 
+let { APPLET_FOLDER } = process.env
+if(APPLET_FOLDER === undefined) {
+    console.log("APPLET_FOLDER not set, using `/applets` ...");
+    APPLET_FOLDER = "/applets";
+}
+
 const scheduler = new ToadScheduler();
 let chunkSize = 39999;
 
@@ -28,7 +34,7 @@ async function devicePing(device) {
 async function deviceLoop(device) {
     if(!(device in config)) {
         //try to autodiscover schedule file for device
-        let scheduleFilePath = `CONFIG_FOLDER/${device.toUpperCase()}.json`;
+        let scheduleFilePath = `${CONFIG_FOLDER}/${device.toUpperCase()}.json`;
         if(!fs.existsSync(scheduleFilePath)) {
             console.log("Schedule file for device does not exist!");
             return;
@@ -139,15 +145,15 @@ function render(name, config) {
             }
         }
         let outputError = "";
-        let unedited = fs.readFileSync(`applets/${name}/${name}.star`).toString()
+        let unedited = fs.readFileSync(`${APPLET_FOLDER}/${name}/${name}.star`).toString()
         if(unedited.indexOf(`load("cache.star", "cache")`) != -1) {
             const redis_connect_string = `cache_redis.connect("**REDACTED**", "default", "**REDACTED**")`
             unedited = unedited.replaceAll(`load("cache.star", "cache")`, `load("cache_redis.star", "cache_redis")\n${redis_connect_string}`);
             unedited = unedited.replaceAll(`cache.`, `cache_redis.`);
         }
-        fs.writeFileSync(`applets/${name}/${name}.tmp.star`, unedited)
+        fs.writeFileSync(`${APPLET_FOLDER}/${name}/${name}.tmp.star`, unedited)
 
-        const renderCommand = spawn('./pixlet', ['render', `applets/${name}/${name}.tmp.star`,...configValues,'-o',`applets/${name}/${name}.webp`]);
+        const renderCommand = spawn('./pixlet', ['render', `${APPLET_FOLDER}/${name}/${name}.tmp.star`,...configValues,'-o',`${APPLET_FOLDER}/${name}/${name}.webp`]);
     
         var timeout = setTimeout(() => {
             console.log(`Rendering timed out for ${name}`);
@@ -170,7 +176,7 @@ function render(name, config) {
             clearTimeout(timeout);
             if(code == 0) {
                 if(outputError.indexOf("skip_execution") == -1) {
-                    resolve(fs.readFileSync(`applets/${name}/${name}.webp`));
+                    resolve(fs.readFileSync(`${APPLET_FOLDER}/${name}/${name}.webp`));
                 } else {
                     reject("Applet requested to skip execution...");
                 }
