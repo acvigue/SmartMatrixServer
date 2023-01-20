@@ -5,9 +5,18 @@ const { Watchdog } = require("watchdog");
 const { exit } = require('process');
 const {spawn} = require("child_process");
 
-const client  = mqtt.connect('**REDACTED**', {
-    username: "**REDACTED**",
-    password: "**REDACTED**"
+/*
+
+Required environment variables for applet-sender to function
+MQTT_[HOSTNAME,USERNAME,PASSWORD]
+REDIS_[HOSTNAME,USERNAME,PASSWORD],
+[CONFIG,APPLET]_FOLDER
+
+*/
+
+const client  = mqtt.connect(process.env.MQTT_HOSTNAME, {
+    username: process.env.MQTT_USERNAME,
+    password: process.env.MQTT_PASSWORD
 });
 
 let { CONFIG_FOLDER } = process.env
@@ -147,7 +156,7 @@ function render(name, config) {
         let outputError = "";
         let unedited = fs.readFileSync(`${APPLET_FOLDER}/${name}/${name}.star`).toString()
         if(unedited.indexOf(`load("cache.star", "cache")`) != -1) {
-            const redis_connect_string = `cache_redis.connect("**REDACTED**", "default", "**REDACTED**")`
+            const redis_connect_string = `cache_redis.connect("${ process.env.REDIS_HOSTNAME }", "${ process.env.REDIS_USERNAME }", "${ process.env.REDIS_PASSWORD }")`
             unedited = unedited.replaceAll(`load("cache.star", "cache")`, `load("cache_redis.star", "cache_redis")\n${redis_connect_string}`);
             unedited = unedited.replaceAll(`cache.`, `cache_redis.`);
         }
