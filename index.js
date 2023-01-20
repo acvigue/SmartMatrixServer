@@ -32,43 +32,52 @@ if(APPLET_FOLDER === undefined) {
 }
 
 const scheduler = new ToadScheduler();
-let chunkSize = 39999;
+let chunkSize = 19950;
 
 let config = {};
+
+const directory = fs.opendirSync(CONFIG_FOLDER)
+let file;
+
+while ((file = directory.readSync()) !== null) {
+    let device = file.name.split(".")[0];
+    if(device.indexOf("/") != -1) {
+        device = device.split("/")[1];
+    }
+
+    let scheduleFilePath = `${CONFIG_FOLDER}/${device.toUpperCase()}.json`;
+    if(!fs.existsSync(scheduleFilePath)) {
+        console.log("Schedule file for device does not exist!");
+        return;
+    }
+
+    let schedule = fs.readFileSync(scheduleFilePath);
+
+    config[device] = {
+        currentApplet: -1,
+        currentAppletStartedAt: 0,
+        connected: false,
+        sendingStatus: {
+            timed_out: false,
+            retries: 0,
+            currentBufferPos: 0,
+            buf: null,
+            hasSentLength: false,
+            isCurrentlySending: false
+        },
+        jobRunning: false,
+        offlineWatchdog: null,
+        schedule: JSON.parse(schedule)
+    }
+}
+
+directory.closeSync()
 
 async function devicePing(device) {
     client.publish(`plm/${device}/applet`, "PING");
 }
 
 async function deviceLoop(device) {
-    if(!(device in config)) {
-        //try to autodiscover schedule file for device
-        let scheduleFilePath = `${CONFIG_FOLDER}/${device.toUpperCase()}.json`;
-        if(!fs.existsSync(scheduleFilePath)) {
-            console.log("Schedule file for device does not exist!");
-            return;
-        }
-
-        let schedule = fs.readFileSync(scheduleFilePath);
-
-        config[device] = {
-            currentApplet: -1,
-            currentAppletStartedAt: 0,
-            connected: false,
-            sendingStatus: {
-                timed_out: false,
-                retries: 0,
-                currentBufferPos: 0,
-                buf: null,
-                hasSentLength: false,
-                isCurrentlySending: false
-            },
-            jobRunning: false,
-            offlineWatchdog: null,
-            schedule: JSON.parse(schedule)
-        }
-    }
-
     if(config[device].jobRunning || config[device].connected == false) {
         return;
     }
