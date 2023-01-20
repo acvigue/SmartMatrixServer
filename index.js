@@ -162,7 +162,7 @@ function render(name, config) {
         }
         fs.writeFileSync(`${APPLET_FOLDER}/${name}/${name}.tmp.star`, unedited)
 
-        const renderCommand = spawn('./pixlet', ['render', `${APPLET_FOLDER}/${name}/${name}.tmp.star`,...configValues,'-o',`${APPLET_FOLDER}/${name}/${name}.webp`]);
+        const renderCommand = spawn(`./pixlet/linux_${process.arch}/pixlet`, ['render', `${APPLET_FOLDER}/${name}/${name}.tmp.star`,...configValues,'-o',`${APPLET_FOLDER}/${name}/${name}.webp`]);
     
         var timeout = setTimeout(() => {
             console.log(`Rendering timed out for ${name}`);
