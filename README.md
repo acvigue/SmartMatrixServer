@@ -1,7 +1,9 @@
 
 # SmartMatrixServer
 
-Requires a MQTT broker and Redis!
+> Part of the SmartMatrix project.
+
+SmartMatrix Server is an application that schedules the delivery of compiled Starlark applets to end devices over MQTT.
 
 ## Run with Docker Compose
 
