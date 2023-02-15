@@ -5,6 +5,8 @@
 
 SmartMatrix Server is an application that schedules the delivery of compiled Starlark applets to end devices over MQTT.
 
+This uses a custom fork of Pixlet to add a compatibility layer for Redis.
+
 ## Run with Docker Compose
 
 ```yml
