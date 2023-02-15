@@ -73,10 +73,6 @@ while ((file = directory.readSync()) !== null) {
 
 directory.closeSync()
 
-async function devicePing(device) {
-    client.publish(`plm/${device}/rx`, "PING");
-}
-
 async function deviceLoop(device) {
     if(config[device].jobRunning || config[device].connected == false) {
         return;
@@ -231,19 +227,7 @@ client.on('connect', function () {
                     { id: `loop_${device}` }
                 );
 
-                //Setup job to ping device.
-                const ping_task = new Task('ping task', () => {
-                    devicePing(device)
-                });
-                
-                const ping_job = new SimpleIntervalJob(
-                    { seconds: 10, runImmediately: true },
-                    ping_task,
-                    { id: `ping_${device}` }
-                );
-
                 scheduler.addSimpleIntervalJob(job);
-                scheduler.addSimpleIntervalJob(ping_job);
 
                 const dog = new Watchdog(60000);
                 dog.on('reset', () => {
