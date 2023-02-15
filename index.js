@@ -74,7 +74,7 @@ while ((file = directory.readSync()) !== null) {
 directory.closeSync()
 
 async function devicePing(device) {
-    client.publish(`plm/${device}/applet`, "PING");
+    client.publish(`plm/${device}/rx`, "PING");
 }
 
 async function deviceLoop(device) {
@@ -139,16 +139,24 @@ function gotDeviceResponse(device, message) {
     } else {
         if(message == "DECODE_ERROR" || message == "PUSHED") {
             config[device].currentAppletStartedAt = Date.now();
-        } else if(message == "DEVICE_BOOT" || message == "PONG") {
+            config[device].sendingStatus.isCurrentlySending = false;
+            config[device].sendingStatus.hasSentLength = false;
+            config[device].sendingStatus.currentBufferPos = 0;
+            config[device].sendingStatus.buf = null;
+        } else if(message == "DEVICE_BOOT") {
             console.log("device is online!");
+            config[device].sendingStatus.isCurrentlySending = false;
+            config[device].sendingStatus.hasSentLength = false;
+            config[device].sendingStatus.currentBufferPos = 0;
+            config[device].sendingStatus.buf = null;
         } else if(message == "TIMEOUT") {
             console.log("device rx timeout!");
+            config[device].sendingStatus.isCurrentlySending = false;
+            config[device].sendingStatus.hasSentLength = false;
+            config[device].sendingStatus.currentBufferPos = 0;
+            config[device].sendingStatus.buf = null;
         }
         config[device].connected = true;
-        config[device].sendingStatus.isCurrentlySending = false;
-        config[device].sendingStatus.hasSentLength = false;
-        config[device].sendingStatus.currentBufferPos = 0;
-        config[device].sendingStatus.buf = null;
     }
 }
 
