@@ -1,7 +1,7 @@
 FROM node:current-alpine
 
 RUN apk add --no-cache git openssl go libwebp libwebp-dev alpine-sdk tzdata && \
-    git clone https://github.com/tidbyt/pixlet && \
+    git clone https://github.com/acvigue/pixlet && \
     cd pixlet && \
     make build && \
     cp pixlet /bin/pixlet && \
