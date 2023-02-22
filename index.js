@@ -4,6 +4,7 @@ const { ToadScheduler, SimpleIntervalJob, Task } = require('toad-scheduler');
 const { Watchdog } = require("watchdog");
 const { exit } = require('process');
 const {spawn} = require("child_process");
+const { Readable } = require("stream");
 
 /*
 
@@ -58,9 +59,7 @@ while ((file = directory.readSync()) !== null) {
         currentAppletStartedAt: 0,
         connected: false,
         sendingStatus: {
-            timed_out: false,
-            retries: 0,
-            currentBufferPos: 0,
+            bufPos: 0,
             buf: null,
             hasSentLength: false,
             isCurrentlySending: false
@@ -103,7 +102,7 @@ async function deviceLoop(device) {
 
         if(config[device].sendingStatus.isCurrentlySending) {
             config[device].sendingStatus.buf = new Uint8Array(imageData);
-            config[device].sendingStatus.currentBufferPos = 0;
+            config[device].sendingStatus.bufPos = 0;
             config[device].sendingStatus.hasSentLength = false;
 
             client.publish(`plm/${device}/rx`, "START");
@@ -120,13 +119,13 @@ async function deviceLoop(device) {
 function gotDeviceResponse(device, message) {
     config[device].offlineWatchdog.feed();
     if(message == "OK") {
-        if(config[device].sendingStatus.currentBufferPos <= config[device].sendingStatus.buf.length) {
+        if(config[device].sendingStatus.bufPos <= config[device].sendingStatus.buf.length) {
             if(config[device].sendingStatus.hasSentLength == false) {
                 config[device].sendingStatus.hasSentLength = true;
                 client.publish(`plm/${device}/rx`, config[device].sendingStatus.buf.length.toString());
             } else {
-                let chunk = config[device].sendingStatus.buf.slice(config[device].sendingStatus.currentBufferPos, config[device].sendingStatus.currentBufferPos+chunkSize);
-                config[device].sendingStatus.currentBufferPos += chunkSize;
+                let chunk = config[device].sendingStatus.buf.slice(config[device].sendingStatus.bufPos, config[device].sendingStatus.bufPos+chunkSize);
+                config[device].sendingStatus.bufPos += chunkSize;
                 client.publish(`plm/${device}/rx`, chunk);
             }
         } else {
@@ -137,19 +136,19 @@ function gotDeviceResponse(device, message) {
             config[device].currentAppletStartedAt = Date.now();
             config[device].sendingStatus.isCurrentlySending = false;
             config[device].sendingStatus.hasSentLength = false;
-            config[device].sendingStatus.currentBufferPos = 0;
+            config[device].sendingStatus.bufPos = 0;
             config[device].sendingStatus.buf = null;
         } else if(message == "DEVICE_BOOT") {
             console.log("device is online!");
             config[device].sendingStatus.isCurrentlySending = false;
             config[device].sendingStatus.hasSentLength = false;
-            config[device].sendingStatus.currentBufferPos = 0;
+            config[device].sendingStatus.bufPos = 0;
             config[device].sendingStatus.buf = null;
         } else if(message == "TIMEOUT") {
             console.log("device rx timeout!");
             config[device].sendingStatus.isCurrentlySending = false;
             config[device].sendingStatus.hasSentLength = false;
-            config[device].sendingStatus.currentBufferPos = 0;
+            config[device].sendingStatus.bufPos = 0;
             config[device].sendingStatus.buf = null;
         }
         config[device].connected = true;
@@ -167,13 +166,15 @@ function render(name, config) {
             }
         }
         let outputError = "";
-        let unedited = fs.readFileSync(`${APPLET_FOLDER}/${name}/${name}.star`).toString()
-        if(unedited.indexOf(`load("cache.star", "cache")`) != -1) {
-            const redis_connect_string = `cache_redis.connect("${ process.env.REDIS_HOSTNAME }", "${ process.env.REDIS_USERNAME }", "${ process.env.REDIS_PASSWORD }")`
-            unedited = unedited.replaceAll(`load("cache.star", "cache")`, `load("cache_redis.star", "cache_redis")\n${redis_connect_string}`);
-            unedited = unedited.replaceAll(`cache.`, `cache_redis.`);
+        let appletContents = fs.readFileSync(`${APPLET_FOLDER}/${name}/${name}.star`).toString()
+        if(process.env.REDIS_HOSTNAME != undefined) {
+            if(appletContents.indexOf(`load("cache.star", "cache")`) != -1) {
+                const redis_connect_string = `cache_redis.connect("${ process.env.REDIS_HOSTNAME }", "${ process.env.REDIS_USERNAME }", "${ process.env.REDIS_PASSWORD }")`
+                appletContents = appletContents.replaceAll(`load("cache.star", "cache")`, `load("cache_redis.star", "cache_redis")\n${redis_connect_string}`);
+                appletContents = appletContents.replaceAll(`cache.`, `cache_redis.`);
+            }
         }
-        fs.writeFileSync(`${APPLET_FOLDER}/${name}/${name}.tmp.star`, unedited)
+        await fs.writeFile(`${APPLET_FOLDER}/${name}/${name}.tmp.star`, appletContents);
 
         const renderCommand = spawn(`pixlet`, ['render', `${APPLET_FOLDER}/${name}/${name}.tmp.star`,...configValues,'-o',`${APPLET_FOLDER}/${name}/${name}.webp`]);
     
@@ -194,8 +195,9 @@ function render(name, config) {
             outputError += data
         })
     
-        renderCommand.on('close', (code) => {
+        renderCommand.on('close', async (code) => {
             clearTimeout(timeout);
+            await fs.unlink(`${APPLET_FOLDER}/${name}/${name}.tmp.star`);
             if(code == 0) {
                 if(outputError.indexOf("skip_execution") == -1) {
                     resolve(fs.readFileSync(`${APPLET_FOLDER}/${name}/${name}.webp`));
@@ -235,7 +237,7 @@ client.on('connect', function () {
                     config[device].connected = false;
                     config[device].sendingStatus.isCurrentlySending = false;
                     config[device].sendingStatus.hasSentLength = false;
-                    config[device].sendingStatus.currentBufferPos = 0;
+                    config[device].sendingStatus.bufPos = 0;
                     config[device].sendingStatus.buf = null;
                 })
                 dog.on('feed',  () => {
@@ -252,17 +254,16 @@ client.on('connect', function () {
 
 client.on("disconnect", function() {
     scheduler.stop()
-    exit(1);
+    client.reconnect();
 });
 
 client.on("error", function() {
-    scheduler.stop()
-    exit(1);
+    scheduler.stop();
+    client.reconnect();
 });
 
 client.on("close", function() {
     scheduler.stop()
-    exit(1);
 });
 
 client.on('message', function (topic, message) {
@@ -271,3 +272,8 @@ client.on('message', function (topic, message) {
       gotDeviceResponse(device, message);
     }
 })
+
+process.once('SIGTERM', function (code) {
+    console.log('SIGTERM received...');
+    client.end(false);
+});
