@@ -5,6 +5,7 @@ const { Watchdog } = require("watchdog");
 const { exit } = require('process');
 const {spawn} = require("child_process");
 const { Readable } = require("stream");
+const YAML = require("yaml");
 
 /*
 
@@ -166,7 +167,8 @@ function render(name, config) {
             }
         }
         let outputError = "";
-        let appletContents = fs.readFileSync(`${APPLET_FOLDER}/${name}/${name}.star`).toString()
+        let manifest = YAML.parse(fs.readFileSync(`${APPLET_FOLDER}/${name}/manifest.yaml`, 'utf-8'));
+        let appletContents = fs.readFileSync(`${APPLET_FOLDER}/${name}/${manifest.fileName}`).toString();
         if(process.env.REDIS_HOSTNAME != undefined) {
             if(appletContents.indexOf(`load("cache.star", "cache")`) != -1) {
                 const redis_connect_string = `cache_redis.connect("${ process.env.REDIS_HOSTNAME }", "${ process.env.REDIS_USERNAME }", "${ process.env.REDIS_PASSWORD }")`
@@ -174,9 +176,9 @@ function render(name, config) {
                 appletContents = appletContents.replaceAll(`cache.`, `cache_redis.`);
             }
         }
-        await fs.writeFile(`${APPLET_FOLDER}/${name}/${name}.tmp.star`, appletContents);
+        fs.writeFileSync(`${APPLET_FOLDER}/${name}/${manifest.fileName}.tmp.star`, appletContents);
 
-        const renderCommand = spawn(`pixlet`, ['render', `${APPLET_FOLDER}/${name}/${name}.tmp.star`,...configValues,'-o',`${APPLET_FOLDER}/${name}/${name}.webp`]);
+        const renderCommand = spawn(`pixlet`, ['render', `${APPLET_FOLDER}/${name}/${manifest.fileName}.tmp.star`,...configValues,'-o',`${APPLET_FOLDER}/${name}/${manifest.fileName}.webp`]);
     
         var timeout = setTimeout(() => {
             console.log(`Rendering timed out for ${name}`);
@@ -195,12 +197,12 @@ function render(name, config) {
             outputError += data
         })
     
-        renderCommand.on('close', async (code) => {
+        renderCommand.on('close', (code) => {
             clearTimeout(timeout);
-            await fs.unlink(`${APPLET_FOLDER}/${name}/${name}.tmp.star`);
+            fs.unlinkSync(`${APPLET_FOLDER}/${name}/${manifest.fileName}.tmp.star`);
             if(code == 0) {
                 if(outputError.indexOf("skip_execution") == -1) {
-                    resolve(fs.readFileSync(`${APPLET_FOLDER}/${name}/${name}.webp`));
+                    resolve(fs.readFileSync(`${APPLET_FOLDER}/${name}/${manifest.fileName}.webp`));
                 } else {
                     reject("Applet requested to skip execution...");
                 }
