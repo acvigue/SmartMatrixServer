@@ -224,6 +224,10 @@ client.on('connect', function () {
                 const task = new Task('simple task', () => {
                     deviceLoop(device)
                 });
+
+                const pingTask = new Task('simple ping task', () => {
+                    client.publish(`plm/${device}/rx`, "PING");
+                });
                 
                 const job = new SimpleIntervalJob(
                     { seconds: 1, runImmediately: true },
@@ -231,7 +235,14 @@ client.on('connect', function () {
                     { id: `loop_${device}` }
                 );
 
+                const pingJob = new SimpleIntervalJob(
+                    { seconds: 30, runImmediately: true },
+                    pingTask,
+                    { id: `loop_${device}` }
+                );
+
                 scheduler.addSimpleIntervalJob(job);
+                scheduler.addSimpleIntervalJob(pingJob);
 
                 const dog = new Watchdog(60000);
                 dog.on('reset', () => {
