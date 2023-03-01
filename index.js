@@ -238,7 +238,7 @@ client.on('connect', function () {
                 const pingJob = new SimpleIntervalJob(
                     { seconds: 30, runImmediately: true },
                     pingTask,
-                    { id: `loop_${device}` }
+                    { id: `ping_${device}` }
                 );
 
                 scheduler.addSimpleIntervalJob(job);
