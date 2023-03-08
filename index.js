@@ -199,7 +199,6 @@ function render(name, config) {
     
         renderCommand.on('close', (code) => {
             clearTimeout(timeout);
-            fs.unlinkSync(`${APPLET_FOLDER}/${name}/${manifest.fileName.replace(".star",".tmp.star")}`);
             if(code == 0) {
                 if(outputError.indexOf("skip_execution") == -1) {
                     resolve(fs.readFileSync(`${APPLET_FOLDER}/${name}/${manifest.fileName}.webp`));
