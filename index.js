@@ -176,9 +176,9 @@ function render(name, config) {
                 appletContents = appletContents.replaceAll(`cache.`, `cache_redis.`);
             }
         }
-        fs.writeFileSync(`${APPLET_FOLDER}/${name}/${manifest.fileName}.tmp.star`, appletContents);
+        fs.writeFileSync(`${APPLET_FOLDER}/${name}/${manifest.fileName.replace(".star",".tmp.star")}`, appletContents);
 
-        const renderCommand = spawn(`pixlet`, ['render', `${APPLET_FOLDER}/${name}/${manifest.fileName}.tmp.star`,...configValues,'-o',`${APPLET_FOLDER}/${name}/${manifest.fileName}.webp`]);
+        const renderCommand = spawn(`pixlet`, ['render', `${APPLET_FOLDER}/${name}/${manifest.fileName.replace(".star",".tmp.star")}`,...configValues,'-o',`${APPLET_FOLDER}/${name}/${manifest.fileName}.webp`]);
     
         var timeout = setTimeout(() => {
             console.log(`Rendering timed out for ${name}`);
@@ -199,7 +199,7 @@ function render(name, config) {
     
         renderCommand.on('close', (code) => {
             clearTimeout(timeout);
-            fs.unlinkSync(`${APPLET_FOLDER}/${name}/${manifest.fileName}.tmp.star`);
+            fs.unlinkSync(`${APPLET_FOLDER}/${name}/${manifest.fileName.replace(".star",".tmp.star")}`);
             if(code == 0) {
                 if(outputError.indexOf("skip_execution") == -1) {
                     resolve(fs.readFileSync(`${APPLET_FOLDER}/${name}/${manifest.fileName}.webp`));
