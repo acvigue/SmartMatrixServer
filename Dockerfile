@@ -7,7 +7,7 @@ RUN apk add --no-cache git openssl go libwebp libwebp-dev alpine-sdk tzdata && \
     cp pixlet /bin/pixlet && \
     chmod +x /bin/pixlet && \
     cd / && rm -rf /pixlet /root/go /root/.cache/go-build && \
-    apk del alpine-sdk go libwebp
+    apk del alpine-sdk go libwebp git
 
 WORKDIR /app
 COPY . .
