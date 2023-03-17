@@ -223,7 +223,7 @@ function render(name, config) {
                     reject("Applet requested to skip execution...");
                 }
             } else {
-                console.error(outputError);
+                console.error(outputError, Buffer.from(outputDataChunks).toString());
                 reject("Applet failed to render.");
             }
         });
