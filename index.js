@@ -91,14 +91,10 @@ async function deviceLoop(device) {
         let imageData = await render(applet.name, applet.config ?? {}).catch((e) => {
             //upon failure, skip applet and retry.
             console.log(e);
-            config[device].currentApplet++;
             config[device].sendingStatus.isCurrentlySending = false;
             if(config[device].currentApplet >= (config[device].schedule.length - 1)) {
                 config[device].currentApplet = -1;
             }
-            setTimeout(() => {
-                deviceLoop(device);
-            }, 5);
         })
 
         if(config[device].sendingStatus.isCurrentlySending) {
