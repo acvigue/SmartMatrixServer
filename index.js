@@ -94,16 +94,13 @@ async function deviceLoop(device) {
         let imageData;
         if(appletExternal) {
             const params = qs.stringify(applet.config ?? {});
-            imageData = await axios.get(`https://prod.tidbyt.com/app-server/preview/${applet.name}.webp?${params}`, {
-                responseType: 'arraybuffer'
-              }).catch((e) => {
+            imageData = await axios.get(`https://prod.tidbyt.com/app-server/preview/${applet.name}.webp?${params}`).catch((e) => {
                 console.log(e);
                 config[device].sendingStatus.isCurrentlySending = false;
                 if(config[device].currentApplet >= (config[device].schedule.length - 1)) {
                     config[device].currentApplet = -1;
                 }
             });
-            imageData = imageData.data;
         } else {
             imageData = await render(applet.name, applet.config ?? {}).catch((e) => {
                 //upon failure, skip applet and retry.
@@ -181,7 +178,6 @@ function render(name, config) {
             }
         }
         let outputError = "";
-        var outputDataChunks = [];
         let manifest = YAML.parse(fs.readFileSync(`${APPLET_FOLDER}/${name}/manifest.yaml`, 'utf-8'));
         let appletContents = fs.readFileSync(`${APPLET_FOLDER}/${name}/${manifest.fileName}`).toString();
         if(process.env.REDIS_HOSTNAME != undefined) {
@@ -193,7 +189,7 @@ function render(name, config) {
         }
         fs.writeFileSync(`${APPLET_FOLDER}/${name}/${manifest.fileName.replace(".star",".tmp.star")}`, appletContents);
 
-        const renderCommand = spawn(`pixlet`, ['render', `${APPLET_FOLDER}/${name}/${manifest.fileName.replace(".star",".tmp.star")}`,...configValues,'-o',`/dev/stderr`]);
+        const renderCommand = spawn(`pixlet`, ['render', `${APPLET_FOLDER}/${name}/${manifest.fileName.replace(".star",".tmp.star")}`,...configValues,'-o',`${APPLET_FOLDER}/${name}/${manifest.fileName}.webp`]);
     
         var timeout = setTimeout(() => {
             console.log(`Rendering timed out for ${name}`);
@@ -209,16 +205,14 @@ function render(name, config) {
         })
 
         renderCommand.stderr.on('data', (data) => {
-            outputDataChunks = outputDataChunks.concat(data)
+            outputError += data
         })
     
         renderCommand.on('close', (code) => {
             clearTimeout(timeout);
-            fs.unlinkSync(`${APPLET_FOLDER}/${name}/${manifest.fileName.replace(".star",".tmp.star")}`);
             if(code == 0) {
                 if(outputError.indexOf("skip_execution") == -1) {
-                    var imageContent = Buffer.concat(outputDataChunks)
-                    resolve(imageContent);
+                    resolve(fs.readFileSync(`${APPLET_FOLDER}/${name}/${manifest.fileName}.webp`));
                 } else {
                     reject("Applet requested to skip execution...");
                 }
