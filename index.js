@@ -6,6 +6,8 @@ const { exit } = require('process');
 const {spawn} = require("child_process");
 const { Readable } = require("stream");
 const YAML = require("yaml");
+const axios = require('axios');
+var qs = require('qs');
 
 /*
 
@@ -88,14 +90,27 @@ async function deviceLoop(device) {
         const applet = config[device].schedule[config[device].currentApplet];
         config[device].sendingStatus.isCurrentlySending = true;
 
-        let imageData = await render(applet.name, applet.config ?? {}).catch((e) => {
-            //upon failure, skip applet and retry.
-            console.log(e);
-            config[device].sendingStatus.isCurrentlySending = false;
-            if(config[device].currentApplet >= (config[device].schedule.length - 1)) {
-                config[device].currentApplet = -1;
-            }
-        })
+        const appletExternal = applet.external ?? false;
+        let imageData;
+        if(appletExternal) {
+            const params = qs.stringify(applet.config ?? {});
+            imageData = await axios.get(`https://prod.tidbyt.com/app-server/preview/${applet.name}.webp?${params}`).catch((e) => {
+                console.log(e);
+                config[device].sendingStatus.isCurrentlySending = false;
+                if(config[device].currentApplet >= (config[device].schedule.length - 1)) {
+                    config[device].currentApplet = -1;
+                }
+            });
+        } else {
+            imageData = await render(applet.name, applet.config ?? {}).catch((e) => {
+                //upon failure, skip applet and retry.
+                console.log(e);
+                config[device].sendingStatus.isCurrentlySending = false;
+                if(config[device].currentApplet >= (config[device].schedule.length - 1)) {
+                    config[device].currentApplet = -1;
+                }
+            })
+        }
 
         if(config[device].sendingStatus.isCurrentlySending) {
             config[device].sendingStatus.buf = new Uint8Array(imageData);
