@@ -94,13 +94,16 @@ async function deviceLoop(device) {
         let imageData;
         if(appletExternal) {
             const params = qs.stringify(applet.config ?? {});
-            imageData = await axios.get(`https://prod.tidbyt.com/app-server/preview/${applet.name}.webp?${params}`).catch((e) => {
+            imageData = await axios.get(`https://prod.tidbyt.com/app-server/preview/${applet.name}.webp?${params}`, {
+                responseType: 'arraybuffer'
+            }).catch((e) => {
                 console.log(e);
                 config[device].sendingStatus.isCurrentlySending = false;
                 if(config[device].currentApplet >= (config[device].schedule.length - 1)) {
                     config[device].currentApplet = -1;
                 }
             });
+            imageData = imageData.data;
         } else {
             imageData = await render(applet.name, applet.config ?? {}).catch((e) => {
                 //upon failure, skip applet and retry.
