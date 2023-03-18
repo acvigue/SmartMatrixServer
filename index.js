@@ -93,8 +93,18 @@ async function deviceLoop(device) {
         const appletExternal = applet.external ?? false;
         let imageData;
         if(appletExternal) {
-            const params = qs.stringify(applet.config ?? {});
-            imageData = await axios.get(`https://prod.tidbyt.com/app-server/preview/${applet.name}.webp?${params}`, {
+            let configValues = [];
+            for(const [k, v] of Object.entries(applet.config)) {
+                if(typeof v === 'object') {
+                    configValues.push(`${k}=${encodeURIComponent(JSON.stringify(v))}`);
+                } else {
+                    configValues.push(`${k}=${encodeURIComponent(v)}`);
+                }
+            }
+            let confStr = configValues.join("&");
+            let url = `https://prod.tidbyt.com/app-server/preview/${applet.name}.webp?${confStr}`;
+
+            imageData = await axios.get(url, {
                 responseType: 'arraybuffer'
             }).catch((e) => {
                 console.log(e);
@@ -192,7 +202,7 @@ function render(name, config) {
         }
         fs.writeFileSync(`${APPLET_FOLDER}/${name}/${manifest.fileName.replace(".star",".tmp.star")}`, appletContents);
 
-        const renderCommand = spawn(`pixlet`, ['render', `${APPLET_FOLDER}/${name}/${manifest.fileName.replace(".star",".tmp.star")}`,...configValues,'-o',`${APPLET_FOLDER}/${name}/${manifest.fileName}.webp`]);
+        const renderCommand = spawn(`pixlet`, ['render', `${APPLET_FOLDER}/${name}/${manifest.fileName.replace(".star",".tmp.star")}`,...configValues,'-o',`/tmp/${manifest.fileName}.webp`]);
     
         var timeout = setTimeout(() => {
             console.log(`Rendering timed out for ${name}`);
@@ -215,12 +225,13 @@ function render(name, config) {
             clearTimeout(timeout);
             if(code == 0) {
                 if(outputError.indexOf("skip_execution") == -1) {
-                    resolve(fs.readFileSync(`${APPLET_FOLDER}/${name}/${manifest.fileName}.webp`));
+                    resolve(fs.readFileSync(`/tmp/${manifest.fileName}.webp`));
                 } else {
                     reject("Applet requested to skip execution...");
                 }
+                fs.unlinkSync(`/tmp/${manifest.fileName}.webp`);
             } else {
-                console.error(outputError, Buffer.from(outputDataChunks).toString());
+                console.error(outputError);
                 reject("Applet failed to render.");
             }
         });
