@@ -201,8 +201,6 @@ async function appletUpdateLoop(device) {
     if(config[device].currentlyUpdatingApplet >= (config[device].schedule.length - 1)) {
         config[device].currentlyUpdatingApplet = -1;
     }
-
-    config[device].jobRunning = false;
 }
 
 function gotDeviceResponse(device, message) {
@@ -271,18 +269,8 @@ function render(name, config) {
         }
         fs.writeFileSync(`${APPLET_FOLDER}/${name}/${manifest.fileName.replace(".star",".tmp.star")}`, appletContents);
 
-        const renderCommand = spawn(`pixlet`, ['render', `${APPLET_FOLDER}/${name}/${manifest.fileName.replace(".star",".tmp.star")}`,...configValues,'-o',`/tmp/${manifest.fileName}.webp`]);
+        const renderCommand = spawn(`pixlet`, ['render', `${APPLET_FOLDER}/${name}/${manifest.fileName.replace(".star",".tmp.star")}`,...configValues,'-o',`/tmp/${manifest.fileName}.webp`], {timeout: 10000});
     
-        var timeout = setTimeout(() => {
-            console.log(`Rendering timed out for ${name}`);
-            try {
-              process.kill(renderCommand.pid, 'SIGKILL');
-            } catch (e) {
-              console.log('Could not kill process ^', e);
-            }
-            reject("Applet failed to render.");
-        }, 10000);
-
         renderCommand.stdout.on('data', (data) => {
             outputError += data
         })
@@ -292,9 +280,8 @@ function render(name, config) {
         })
     
         renderCommand.on('close', (code) => {
-            clearTimeout(timeout);
             if(code == 0) {
-                if(outputError.indexOf("skip_execution") == -1) {
+                if(outputError.indexOf("skip_execution") == -1 && fs.existsSync(`/tmp/${manifest.fileName}.webp`)) {
                     resolve(fs.readFileSync(`/tmp/${manifest.fileName}.webp`));
                 } else {
                     reject("Applet requested to skip execution...");
