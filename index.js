@@ -96,7 +96,7 @@ async function appletDisplayLoop(device) {
         return;
     }
 
-    const nextAppletNeedsRunAt = config[device].currentAppletStartedAt + (config[device].schedule[config[device].currentApplet+1].duration * 1000);
+    const nextAppletNeedsRunAt = config[device].currentAppletStartedAt + (config[device].schedule[config[device].currentApplet].duration * 1000);
     
     if(Date.now() > nextAppletNeedsRunAt) {
         //Find next unskipped applet.
@@ -136,6 +136,10 @@ async function appletUpdateLoop(device) {
     config[device].sendingStatus.isCurrentlySending = true;
     config[device].currentlyUpdatingApplet++;
 
+    if(config[device].currentlyUpdatingApplet >= (config[device].schedule.length - 1)) {
+        config[device].currentlyUpdatingApplet = 0;
+    }
+
     const applet = config[device].schedule[config[device].currentlyUpdatingApplet];
 
     const appletExternal = applet.external ?? false;
@@ -157,18 +161,12 @@ async function appletUpdateLoop(device) {
         }).catch((e) => {
             config[device].schedule[config[device].currentlyUpdatingApplet].skip = true;
             config[device].sendingStatus.isCurrentlySending = false;
-            if(config[device].currentlyUpdatingApplet >= (config[device].schedule.length - 1)) {
-                config[device].currentlyUpdatingApplet = -1;
-            }
         });
         imageData = imageData.data;
     } else {
         imageData = await render(applet.name, applet.config ?? {}).catch((e) => {
             config[device].schedule[config[device].currentlyUpdatingApplet].skip = true;
             config[device].sendingStatus.isCurrentlySending = false;
-            if(config[device].currentlyUpdatingApplet >= (config[device].schedule.length - 1)) {
-                config[device].currentlyUpdatingApplet = -1;
-            }
         })
     }
 
@@ -207,10 +205,6 @@ async function appletUpdateLoop(device) {
         } else {
             config[device].sendingStatus.isCurrentlySending = false;
         }
-    }
-
-    if(config[device].currentlyUpdatingApplet >= (config[device].schedule.length - 1)) {
-        config[device].currentlyUpdatingApplet = -1;
     }
 }
 
