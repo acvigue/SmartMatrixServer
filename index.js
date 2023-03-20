@@ -208,6 +208,22 @@ async function appletUpdateLoop(device) {
 function gotDeviceResponse(device, message) {
     if(message.type == "heartbeat") {
         config[device].offlineWatchdog.feed();
+    } else if(message.type == "boot") {
+        let schedule = config[device].schedule;
+        config[device] = {
+            currentApplet: -1,
+            currentlyUpdatingApplet: -1,
+            currentAppletStartedAt: 0,
+            connected: false,
+            sendingStatus: {
+                bufPos: 0,
+                buf: null,
+                isCurrentlySending: false
+            },
+            waitingForDisplayAck: false,
+            offlineWatchdog: null,
+            schedule: schedule
+        }
     } else if(message.type == "success") {
         if(message.next == "send_chunk") {
             if(config[device].sendingStatus.bufPos <= config[device].sendingStatus.buf.length) {
