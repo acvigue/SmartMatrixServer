@@ -307,7 +307,7 @@ client.on('connect', function () {
                 });
                 
                 const display_job = new SimpleIntervalJob(
-                    { seconds: 5, runImmediately: true },
+                    { seconds: 1, runImmediately: true },
                     display_task,
                     { id: `display_${device}` }
                 );
