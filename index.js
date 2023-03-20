@@ -138,8 +138,6 @@ async function appletUpdateLoop(device) {
 
     const applet = config[device].schedule[config[device].currentlyUpdatingApplet];
 
-    console.log(`Checking updates for applet ${applet.uuid}: ${applet.name}`);
-
     const appletExternal = applet.external ?? false;
     let imageData = null;
     if(appletExternal) {
@@ -157,7 +155,6 @@ async function appletUpdateLoop(device) {
         imageData = await axios.get(url, {
             responseType: 'arraybuffer'
         }).catch((e) => {
-            console.log(`Applet ${applet.uuid} (${applet.name}) returned error: `, e);
             config[device].schedule[config[device].currentlyUpdatingApplet].skip = true;
             config[device].sendingStatus.isCurrentlySending = false;
             if(config[device].currentlyUpdatingApplet >= (config[device].schedule.length - 1)) {
@@ -167,8 +164,6 @@ async function appletUpdateLoop(device) {
         imageData = imageData.data;
     } else {
         imageData = await render(applet.name, applet.config ?? {}).catch((e) => {
-            //upon failure, skip applet and retry.
-            console.log(`Applet ${applet.uuid} (${applet.name}) returned error: `, e);
             config[device].schedule[config[device].currentlyUpdatingApplet].skip = true;
             config[device].sendingStatus.isCurrentlySending = false;
             if(config[device].currentlyUpdatingApplet >= (config[device].schedule.length - 1)) {
@@ -353,7 +348,7 @@ client.on('connect', function () {
                 );
 
                 const update_job = new SimpleIntervalJob(
-                    { seconds: 1, runImmediately: true },
+                    { seconds: 0.1, runImmediately: true },
                     update_task,
                     { id: `update_${device}` }
                 );
