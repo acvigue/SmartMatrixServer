@@ -74,6 +74,8 @@ while ((file = directory.readSync()) !== null) {
         },
         waitingForDisplayAck: false,
         offlineWatchdog: null,
+        dataTimeout: null,
+        displayTimeout: null,
         schedule: schedule
     }
 }
@@ -111,6 +113,11 @@ async function appletDisplayLoop(device) {
                     }
                 });
                 config[device].waitingForDisplayAck = true;
+
+                config[device].displayTimeout = setTimeout(() => {
+                    console.log(`Displaying applet ${applet.uuid} (${applet.name}) timed out.`);
+                    config[device].waitingForDisplayAck = false;
+                }, 10000);
                 break;
             }
         }
@@ -193,6 +200,10 @@ async function appletUpdateLoop(device) {
                     appid: applet.uuid
                 }
             });
+
+            config[device].dataTimeout = setTimeout(() => {
+                publishToDevice(device, {command: "app_graphic_stop"});
+            }, 15000);
         } else {
             config[device].sendingStatus.isCurrentlySending = false;
         }
@@ -203,42 +214,60 @@ async function appletUpdateLoop(device) {
     }
 }
 
+function deviceConnected(device) {
+    config[device].currentApplet = -1;
+    config[device].currentlyUpdatingApplet = -1;
+    config[device].connected = true;
+    config[device].waitingForDisplayAck = false;
+    config[device].sendingStatus = {
+        bufPos: 0,
+        buf: null,
+        isCurrentlySending: false
+    }
+    if(config[device].dataTimeout != null) {
+        clearTimeout(config[device].dataTimeout);
+        config[device].dataTimeout = null;
+    }
+
+    if(config[device].displayTimeout != null) {
+        clearTimeout(config[device].displayTimeout);
+        config[device].displayTimeout = null;
+    }
+}
+
 function gotDeviceResponse(device, message) {
-    if(message.type == "heartbeat") {
-        config[device].offlineWatchdog.feed();
-    } else if(message.type == "boot") {
-        let schedule = config[device].schedule;
-        let dog = config[device].offlineWatchdog;
-        config[device] = {
-            currentApplet: -1,
-            currentlyUpdatingApplet: -1,
-            currentAppletStartedAt: 0,
-            connected: true,
-            sendingStatus: {
-                bufPos: 0,
-                buf: null,
-                isCurrentlySending: false
-            },
-            waitingForDisplayAck: false,
-            offlineWatchdog: dog,
-            schedule: schedule
-        }
+    config[device].offlineWatchdog.feed();
+    if(message.type == "boot") {
+        deviceConnected(device);
     } else if(message.type == "success") {
+        clearTimeout(config[device].dataTimeout);
+        config[device].dataTimeout = null;
         if(message.next == "send_chunk") {
             if(config[device].sendingStatus.bufPos <= config[device].sendingStatus.buf.length) {
                 let chunk = config[device].sendingStatus.buf.slice(config[device].sendingStatus.bufPos, config[device].sendingStatus.bufPos+chunkSize);
                 config[device].sendingStatus.bufPos += chunkSize;
                 client.publish(`smartmatrix/${device}/applet`, chunk);
+                config[device].dataTimeout = setTimeout(() => {
+                    publishToDevice(device, {command: "app_graphic_stop"});
+                }, 15000);
             } else {
                 publishToDevice(device, {command: "app_graphic_sent"});
                 config[device].sendingStatus.isCurrentlySending = false;
             }
         } else if(message.info == "applet_displayed") {
+            clearTimeout(config[device].displayTimeout);
+            config[device].displayTimeout = null;
             config[device].waitingForDisplayAck = false;
+
             config[device].currentAppletStartedAt = Date.now();
+        } else if(message.next == "send_next") {
+            config[device].sendingStatus.isCurrentlySending = false;
         }
     } else if(message.type == "error") {
+        clearTimeout(config[device].displayTimeout);
+        config[device].displayTimeout = null;
         config[device].waitingForDisplayAck = false;
+
         if(message.info == "not_found") {
             config[device].currentAppletStartedAt = 0;
         } else {
