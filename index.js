@@ -2,12 +2,11 @@ const mqtt = require('mqtt')
 const fs = require('fs');
 const { ToadScheduler, SimpleIntervalJob, Task } = require('toad-scheduler');
 const { Watchdog } = require("watchdog");
-const { exit } = require('process');
 const {spawn} = require("child_process");
-const { Readable } = require("stream");
 const YAML = require("yaml");
 const axios = require('axios');
-var qs = require('qs');
+const { v4: uuidv4 } = require('uuid');
+var crypto = require('crypto');
 
 /*
 
@@ -39,6 +38,7 @@ const scheduler = new ToadScheduler();
 let chunkSize = 19950;
 
 let config = {};
+let hashes = {};
 
 const directory = fs.opendirSync(CONFIG_FOLDER)
 let file;
@@ -56,127 +56,178 @@ while ((file = directory.readSync()) !== null) {
     }
 
     let schedule = fs.readFileSync(scheduleFilePath);
+    schedule = JSON.parse(schedule);
+    schedule.forEach((v, i) => {
+        schedule[i]["uuid"] = ((uuidv4()).slice(0, 8));
+        schedule[i]["skip"] = false;
+    })
 
     config[device] = {
         currentApplet: -1,
+        currentlyUpdatingApplet: -1,
         currentAppletStartedAt: 0,
         connected: false,
         sendingStatus: {
             bufPos: 0,
             buf: null,
-            hasSentLength: false,
             isCurrentlySending: false
         },
-        jobRunning: false,
+        waitingForDisplayAck: false,
         offlineWatchdog: null,
-        schedule: JSON.parse(schedule)
+        schedule: schedule
     }
 }
 
 directory.closeSync()
 
-async function deviceLoop(device) {
-    if(config[device].jobRunning || config[device].connected == false) {
+function publishToDevice(device, obj) {
+    const msg = JSON.stringify(obj);
+    client.publish(`smartmatrix/${device}/command`, msg);
+}
+
+async function appletDisplayLoop(device) {
+    if(config[device].connected == false || config[device].waitingForDisplayAck) {
         return;
     }
 
-    config[device].jobRunning = true;
-
     const nextAppletNeedsRunAt = config[device].currentAppletStartedAt + (config[device].schedule[config[device].currentApplet+1].duration * 1000);
-
-    if(Date.now() > nextAppletNeedsRunAt && !config[device].sendingStatus.isCurrentlySending) {
-        config[device].currentApplet++;
-
-        const applet = config[device].schedule[config[device].currentApplet];
-        config[device].sendingStatus.isCurrentlySending = true;
-
-        const appletExternal = applet.external ?? false;
-        let imageData;
-        if(appletExternal) {
-            let configValues = [];
-            for(const [k, v] of Object.entries(applet.config)) {
-                if(typeof v === 'object') {
-                    configValues.push(`${k}=${encodeURIComponent(JSON.stringify(v))}`);
-                } else {
-                    configValues.push(`${k}=${encodeURIComponent(v)}`);
-                }
-            }
-            let confStr = configValues.join("&");
-            let url = `https://prod.tidbyt.com/app-server/preview/${applet.name}.webp?${confStr}`;
-
-            imageData = await axios.get(url, {
-                responseType: 'arraybuffer'
-            }).catch((e) => {
-                console.log(e);
-                config[device].sendingStatus.isCurrentlySending = false;
-                if(config[device].currentApplet >= (config[device].schedule.length - 1)) {
-                    config[device].currentApplet = -1;
-                }
-            });
-            imageData = imageData.data;
-        } else {
-            imageData = await render(applet.name, applet.config ?? {}).catch((e) => {
-                //upon failure, skip applet and retry.
-                console.log(e);
-                config[device].sendingStatus.isCurrentlySending = false;
-                if(config[device].currentApplet >= (config[device].schedule.length - 1)) {
-                    config[device].currentApplet = -1;
-                }
-            })
-        }
-
-        if(config[device].sendingStatus.isCurrentlySending) {
-            config[device].sendingStatus.buf = new Uint8Array(imageData);
-            config[device].sendingStatus.bufPos = 0;
-            config[device].sendingStatus.hasSentLength = false;
-
-            client.publish(`plm/${device}/rx`, "START");
+    
+    if(Date.now() > nextAppletNeedsRunAt) {
+        //Find next unskipped applet.
+        while(true) {
+            config[device].currentApplet++;
 
             if(config[device].currentApplet >= (config[device].schedule.length - 1)) {
-                config[device].currentApplet = -1;
+                config[device].currentApplet = 0;
+            }
+
+            const applet = config[device].schedule[config[device].currentApplet];
+            if(!applet.skip) {
+                //Attempt to display applet on device.
+                publishToDevice(device, {
+                    command: "display_app_graphic",
+                    params: {
+                        appid: applet.uuid
+                    }
+                });
+                config[device].waitingForDisplayAck = true;
+                break;
             }
         }
+    }
+}
+
+async function appletUpdateLoop(device) {
+    if(config[device].sendingStatus.isCurrentlySending || config[device].connected == false) {
+        return;
+    }
+
+    config[device].sendingStatus.isCurrentlySending = true;
+    config[device].currentlyUpdatingApplet++;
+
+    const applet = config[device].schedule[config[device].currentlyUpdatingApplet];
+
+    console.log(`Checking updates for applet ${applet.uuid}: ${applet.name}`);
+
+    const appletExternal = applet.external ?? false;
+    let imageData = null;
+    if(appletExternal) {
+        let configValues = [];
+        for(const [k, v] of Object.entries(applet.config)) {
+            if(typeof v === 'object') {
+                configValues.push(`${k}=${encodeURIComponent(JSON.stringify(v))}`);
+            } else {
+                configValues.push(`${k}=${encodeURIComponent(v)}`);
+            }
+        }
+        let confStr = configValues.join("&");
+        let url = `https://prod.tidbyt.com/app-server/preview/${applet.name}.webp?${confStr}`;
+
+        imageData = await axios.get(url, {
+            responseType: 'arraybuffer'
+        }).catch((e) => {
+            console.log(`Applet ${applet.uuid} (${applet.name}) returned error: `, e);
+            config[device].schedule[config[device].currentlyUpdatingApplet].skip = true;
+            config[device].sendingStatus.isCurrentlySending = false;
+            if(config[device].currentlyUpdatingApplet >= (config[device].schedule.length - 1)) {
+                config[device].currentlyUpdatingApplet = -1;
+            }
+        });
+        imageData = imageData.data;
+    } else {
+        imageData = await render(applet.name, applet.config ?? {}).catch((e) => {
+            //upon failure, skip applet and retry.
+            console.log(`Applet ${applet.uuid} (${applet.name}) returned error: `, e);
+            config[device].schedule[config[device].currentlyUpdatingApplet].skip = true;
+            config[device].sendingStatus.isCurrentlySending = false;
+            if(config[device].currentlyUpdatingApplet >= (config[device].schedule.length - 1)) {
+                config[device].currentlyUpdatingApplet = -1;
+            }
+        })
+    }
+
+    if(config[device].sendingStatus.isCurrentlySending) {
+        config[device].schedule[config[device].currentlyUpdatingApplet].skip = false;
+
+        //Check if applet needs to be pushed to device before sending
+        const hash = crypto.createHash('sha256').update(Buffer.from(imageData)).digest('base64');
+        let needsUpdated = false;
+        if(Object.keys(hashes).indexOf(applet.uuid) != -1) {
+            if(hashes[applet.uuid] != hash) {
+                needsUpdated = true;
+            }
+        } else {
+            needsUpdated = true;
+        }
+        hashes[applet.uuid] = hash;
+
+        if(needsUpdated) {
+            //Applet needs to be updated.
+            config[device].sendingStatus.buf = new Uint8Array(imageData);
+            config[device].sendingStatus.bufPos = 0;
+            
+            publishToDevice(device, {
+                command: "send_app_graphic",
+                params: {
+                    appid: applet.uuid
+                }
+            });
+        } else {
+            config[device].sendingStatus.isCurrentlySending = false;
+        }
+    }
+
+    if(config[device].currentlyUpdatingApplet >= (config[device].schedule.length - 1)) {
+        config[device].currentlyUpdatingApplet = -1;
     }
 
     config[device].jobRunning = false;
 }
 
 function gotDeviceResponse(device, message) {
-    config[device].offlineWatchdog.feed();
-    if(message == "OK") {
-        if(config[device].sendingStatus.bufPos <= config[device].sendingStatus.buf.length) {
-            if(config[device].sendingStatus.hasSentLength == false) {
-                config[device].sendingStatus.hasSentLength = true;
-                client.publish(`plm/${device}/rx`, config[device].sendingStatus.buf.length.toString());
-            } else {
+    if(message.type == "heartbeat") {
+        config[device].offlineWatchdog.feed();
+    } else if(message.type == "success") {
+        if(message.next == "send_chunk") {
+            if(config[device].sendingStatus.bufPos <= config[device].sendingStatus.buf.length) {
                 let chunk = config[device].sendingStatus.buf.slice(config[device].sendingStatus.bufPos, config[device].sendingStatus.bufPos+chunkSize);
                 config[device].sendingStatus.bufPos += chunkSize;
-                client.publish(`plm/${device}/rx`, chunk);
+                client.publish(`smartmatrix/${device}/applet`, chunk);
+            } else {
+                publishToDevice(device, {command: "app_graphic_sent"});
+                config[device].sendingStatus.isCurrentlySending = false;
             }
-        } else {
-            client.publish(`plm/${device}/rx`, "FINISH");
-        }
-    } else {
-        if(message == "DECODE_ERROR" || message == "PUSHED") {
+        } else if(message.info == "applet_displayed") {
+            config[device].waitingForDisplayAck = false;
             config[device].currentAppletStartedAt = Date.now();
-            config[device].sendingStatus.isCurrentlySending = false;
-            config[device].sendingStatus.hasSentLength = false;
-            config[device].sendingStatus.bufPos = 0;
-            config[device].sendingStatus.buf = null;
-        } else if(message == "DEVICE_BOOT") {
-            console.log("device is online!");
-            config[device].sendingStatus.isCurrentlySending = false;
-            config[device].sendingStatus.hasSentLength = false;
-            config[device].sendingStatus.bufPos = 0;
-            config[device].sendingStatus.buf = null;
-        } else if(message == "TIMEOUT") {
-            console.log("device rx timeout!");
-            config[device].sendingStatus.isCurrentlySending = false;
-            config[device].sendingStatus.hasSentLength = false;
-            config[device].sendingStatus.bufPos = 0;
-            config[device].sendingStatus.buf = null;
         }
-        config[device].connected = true;
+    } else if(message.type == "error") {
+        config[device].waitingForDisplayAck = false;
+        if(message.info == "not_found") {
+            config[device].currentAppletStartedAt = 0;
+        } else {
+            console.log(`Receieved error state from device ${device}: ${message.info}`);
+        }
     }
 }
 
@@ -211,6 +262,7 @@ function render(name, config) {
             } catch (e) {
               console.log('Could not kill process ^', e);
             }
+            reject("Applet failed to render.");
         }, 10000);
 
         renderCommand.stdout.on('data', (data) => {
@@ -240,40 +292,40 @@ function render(name, config) {
 
 client.on('connect', function () {
     for(const [device, _] of Object.entries(config)) {
-        client.subscribe(`plm/${device}/tx`, function (err) {
+        client.subscribe(`smartmatrix/${device}/status`, function (err) {
             if (!err) {
-                client.publish(`plm/${device}/rx`, "PING");
-                
+                publishToDevice(device, {
+                    command: "ping"
+                });
+
                 //Setup job to work on device.
-                const task = new Task('simple task', () => {
-                    deviceLoop(device)
+                const display_task = new Task(`${device} display task`, () => {
+                    appletDisplayLoop(device)
                 });
-
-                const pingTask = new Task('simple ping task', () => {
-                    client.publish(`plm/${device}/rx`, "PING");
+                const update_task = new Task(`${device} update task`, () => {
+                    appletUpdateLoop(device)
                 });
                 
-                const job = new SimpleIntervalJob(
+                const display_job = new SimpleIntervalJob(
+                    { seconds: 5, runImmediately: true },
+                    display_task,
+                    { id: `display_${device}` }
+                );
+
+                const update_job = new SimpleIntervalJob(
                     { seconds: 1, runImmediately: true },
-                    task,
-                    { id: `loop_${device}` }
+                    update_task,
+                    { id: `update_${device}` }
                 );
 
-                const pingJob = new SimpleIntervalJob(
-                    { seconds: 30, runImmediately: true },
-                    pingTask,
-                    { id: `ping_${device}` }
-                );
+                scheduler.addSimpleIntervalJob(display_job);
+                scheduler.addSimpleIntervalJob(update_job);
 
-                scheduler.addSimpleIntervalJob(job);
-                scheduler.addSimpleIntervalJob(pingJob);
-
-                const dog = new Watchdog(120000);
+                const dog = new Watchdog(20000);
                 dog.on('reset', () => {
                     console.log(`Device ${device} disconnected.`);
                     config[device].connected = false;
                     config[device].sendingStatus.isCurrentlySending = false;
-                    config[device].sendingStatus.hasSentLength = false;
                     config[device].sendingStatus.bufPos = 0;
                     config[device].sendingStatus.buf = null;
                 })
@@ -283,7 +335,7 @@ client.on('connect', function () {
 
                 config[device].offlineWatchdog = dog;
             } else {
-                console.log(`Couldn't subscribe to ${device} response channel.`);
+                console.log(`Couldn't subscribe to ${device} status channel.`);
             }
         })
     }
@@ -304,9 +356,9 @@ client.on("close", function() {
 });
 
 client.on('message', function (topic, message) {
-    if(topic.indexOf("tx") != -1) {
+    if(topic.indexOf("status") != -1) {
       const device = topic.split("/")[1];
-      gotDeviceResponse(device, message);
+      gotDeviceResponse(device, JSON.parse(message));
     }
 })
 
