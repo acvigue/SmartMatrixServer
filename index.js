@@ -210,18 +210,19 @@ function gotDeviceResponse(device, message) {
         config[device].offlineWatchdog.feed();
     } else if(message.type == "boot") {
         let schedule = config[device].schedule;
+        let dog = config[device].offlineWatchdog;
         config[device] = {
             currentApplet: -1,
             currentlyUpdatingApplet: -1,
             currentAppletStartedAt: 0,
-            connected: false,
+            connected: true,
             sendingStatus: {
                 bufPos: 0,
                 buf: null,
                 isCurrentlySending: false
             },
             waitingForDisplayAck: false,
-            offlineWatchdog: null,
+            offlineWatchdog: dog,
             schedule: schedule
         }
     } else if(message.type == "success") {
