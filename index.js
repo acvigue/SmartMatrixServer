@@ -58,7 +58,7 @@ while ((file = directory.readSync()) !== null) {
     let schedule = fs.readFileSync(scheduleFilePath);
     schedule = JSON.parse(schedule);
     schedule.forEach((v, i) => {
-        schedule[i]["uuid"] = ((uuidv4()).slice(0, 8));
+        schedule[i]["uuid"] = i.toString();
         schedule[i]["skip"] = false;
     })
 
@@ -170,16 +170,17 @@ async function appletUpdateLoop(device) {
         config[device].schedule[config[device].currentlyUpdatingApplet].skip = false;
 
         //Check if applet needs to be pushed to device before sending
+        const hashKey = `${device}-${applet.uuid}`;
         const hash = crypto.createHash('sha256').update(Buffer.from(imageData)).digest('base64');
         let needsUpdated = false;
-        if(Object.keys(hashes).indexOf(applet.uuid) != -1) {
-            if(hashes[applet.uuid] != hash) {
+        if(Object.keys(hashes).indexOf(hashKey) != -1) {
+            if(hashes[hashKey] != hash) {
                 needsUpdated = true;
             }
         } else {
             needsUpdated = true;
         }
-        hashes[applet.uuid] = hash;
+        hashes[hashKey] = hash;
 
         if(needsUpdated) {
             //Applet needs to be updated.
