@@ -96,7 +96,12 @@ async function appletDisplayLoop(device) {
         return;
     }
 
-    const nextAppletNeedsRunAt = config[device].currentAppletStartedAt + (config[device].schedule[config[device].currentApplet].duration * 1000);
+    let nextAppletNeedsRunAt;
+    try {
+        nextAppletNeedsRunAt = config[device].currentAppletStartedAt + (config[device].schedule[config[device].currentApplet].duration * 1000);
+    } catch(e) {
+        nextAppletNeedsRunAt = 0;
+    }
     
     if(Date.now() > nextAppletNeedsRunAt) {
         //Find next unskipped applet.
