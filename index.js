@@ -70,7 +70,11 @@ while ((file = directory.readSync()) !== null) {
         sendingStatus: {
             bufPos: 0,
             buf: null,
-            isCurrentlySending: false
+            isCurrentlySending: false,
+            currentHash: {
+                key: "",
+                hash: ""
+            }
         },
         waitingForDisplayAck: false,
         offlineWatchdog: null,
@@ -105,20 +109,20 @@ async function appletDisplayLoop(device) {
 
             const applet = config[device].schedule[config[device].currentApplet];
             if(!applet.skip) {
-                //Attempt to display applet on device.
-                publishToDevice(device, {
-                    command: "display_app_graphic",
-                    params: {
-                        appid: applet.uuid
-                    }
-                });
-                config[device].waitingForDisplayAck = true;
+                    //Attempt to display applet on device.
+                    publishToDevice(device, {
+                        command: "display_app_graphic",
+                        params: {
+                            appid: applet.uuid
+                        }
+                    });
+                    config[device].waitingForDisplayAck = true;
 
-                config[device].displayTimeout = setTimeout(() => {
-                    console.log(`Displaying applet ${applet.uuid} (${applet.name}) timed out.`);
-                    config[device].waitingForDisplayAck = false;
-                }, 10000);
-                break;
+                    config[device].displayTimeout = setTimeout(() => {
+                        console.log(`Displaying applet ${applet.uuid} (${applet.name}) timed out.`);
+                        config[device].waitingForDisplayAck = false;
+                    }, 10000);
+                    break;
             }
         }
     }
@@ -187,12 +191,13 @@ async function appletUpdateLoop(device) {
         } else {
             needsUpdated = true;
         }
-        hashes[hashKey] = hash;
 
         if(needsUpdated) {
             //Applet needs to be updated.
             config[device].sendingStatus.buf = new Uint8Array(imageData);
             config[device].sendingStatus.bufPos = 0;
+            config[device].sendingStatus.currentHash.key = hashKey;
+            config[device].sendingStatus.currentHash.hash = hash;
             
             publishToDevice(device, {
                 command: "send_app_graphic",
@@ -252,6 +257,7 @@ function gotDeviceResponse(device, message) {
                 }, 15000);
             } else {
                 publishToDevice(device, {command: "app_graphic_sent"});
+                hashes[config[device].sendingStatus.currentHash.key] = config[device].sendingStatus.currentHash.hash;
                 config[device].sendingStatus.isCurrentlySending = false;
             }
         } else if(message.info == "applet_displayed") {
