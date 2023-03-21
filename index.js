@@ -8,6 +8,8 @@ const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
 var crypto = require('crypto');
 
+const fwURL = process.env.FW_URL || "https://blogcdn.vigue.me/firmware.bin";
+
 /*
 
 Required environment variables for applet-sender to function
@@ -234,10 +236,40 @@ function deviceConnected(device) {
     }
 }
 
+function buf2hex(buffer) { // buffer is an ArrayBuffer
+    return [...new Uint8Array(buffer)]
+        .map(x => x.toString(16).padStart(2, '0'))
+        .join('');
+}
+
+function checkOTA(device, hash) {
+    return new Promise(async (resolve, reject) => {
+        let bin = await axios.get(fwURL, {
+            responseType: 'arraybuffer'
+        }).catch((e) => {
+            console.log(e);
+            resolve();
+        });
+        bin = bin.data;
+        const hostHash = bin.slice(-32);
+        console.log(buf2hex(hostHash));
+        if(buf2hex(hostHash) != hash) {
+            publishToDevice(device, {
+                "command": "device_update",
+                "params": {
+                    "url": fwURL
+                }
+            })
+            resolve();
+        }
+    })
+}
+
 function gotDeviceResponse(device, message) {
     config[device].offlineWatchdog.feed();
     if(message.type == "boot") {
         deviceConnected(device);
+        checkOTA(device, message.apphash);
     } else if(message.type == "success") {
         clearTimeout(config[device].dataTimeout);
         config[device].dataTimeout = null;
