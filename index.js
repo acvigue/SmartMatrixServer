@@ -87,7 +87,9 @@ while ((file = directory.readSync()) !== null) {
         dataTimeout: null,
         schedule: schedule,
         reducedSchedule: reducedSchedule,
-        currentReducedSchedule: []
+        reducedScheduleSHA: "",
+        deviceReducedSchedule: [],
+        deviceReducedScheduleSHA: null,
     }
 }
 
@@ -101,11 +103,6 @@ function publishToDevice(device, obj) {
 async function appletUpdateLoop(device) {
     if (config[device].sendingStatus.isCurrentlySending || config[device].connected == false) {
         return;
-    }
-    
-    if (JSON.stringify(config[device].reducedSchedule) !== JSON.stringify(config[device].currentReducedSchedule)) {
-        let sched = JSON.stringify(config[device].reducedSchedule);
-        client.publish(`smartmatrix/${device}/schedule`, sched);
     }
 
     config[device].sendingStatus.isCurrentlySending = true;
@@ -130,13 +127,15 @@ async function appletUpdateLoop(device) {
         let confStr = configValues.join("&");
         let url = `https://prod.tidbyt.com/app-server/preview/${applet.name}.webp?${confStr}`;
 
-        imageData = await axios.get(url, {
-            responseType: 'arraybuffer'
-        }).catch((e) => {
+        try {
+            imageData = await axios.get(url, {
+                responseType: 'arraybuffer'
+            });
+            imageData = imageData.data;
+        } catch(e) {
             config[device].reducedSchedule[config[device].currentlyUpdatingApplet].s = true;
             config[device].sendingStatus.isCurrentlySending = false;
-        });
-        imageData = imageData.data;
+        }
     } else {
         imageData = await render(device, applet.name, applet.config ?? {}).catch((e) => {
             config[device].reducedSchedule[config[device].currentlyUpdatingApplet].s = true;
@@ -175,10 +174,33 @@ async function appletUpdateLoop(device) {
 
             config[device].dataTimeout = setTimeout(() => {
                 publishToDevice(device, { command: "app_graphic_stop" });
+                config[device].sendingStatus.isCurrentlySending = false;
             }, 15000);
         } else {
             config[device].sendingStatus.isCurrentlySending = false;
         }
+    }
+}
+
+async function scheduleUpdateLoop(device) {
+    if (config[device].connected == false) {
+        return;
+    }
+
+    if (JSON.stringify(config[device].reducedSchedule) !== JSON.stringify(config[device].deviceReducedSchedule)) {
+        let sched = config[device].reducedSchedule;
+        config[device].reducedScheduleSHA = crypto.createHash('sha256').update(Buffer.from(JSON.stringify(sched))).digest('base64');
+    }
+
+    const dev = config[device];
+    if (dev.reducedScheduleSHA != dev.deviceReducedScheduleSHA) {
+        let msg = {
+            items: dev.reducedSchedule,
+            hash: dev.reducedScheduleSHA
+        }
+        client.publish(`smartmatrix/${device}/schedule`, JSON.stringify(msg));
+    } else {
+        config[device].deviceReducedSchedule = JSON.parse(JSON.stringify(config[device].reducedSchedule));
     }
 }
 
@@ -189,22 +211,22 @@ function deviceConnected(device) {
     config[device].sendingStatus.isCurrentlySending = false;
     config[device].sendingStatus.bufPos = 0;
     config[device].sendingStatus.buf = null;
-    if (config[device].dataTimeout != null) {
-        clearTimeout(config[device].dataTimeout);
-        config[device].dataTimeout = null;
-    }
 }
 
 
 function gotDeviceResponse(device, message) {
     config[device].offlineWatchdog.feed();
-    if (message.type == "boot") {
+    if(config[device].connected == false) {
         deviceConnected(device);
-        client.publish(`smartmatrix/${device}/schedule`, JSON.stringify(config[device].reducedSchedule));
-    } else if (message.type == "success") {
-        clearTimeout(config[device].dataTimeout);
-        config[device].dataTimeout = null;
+    }
+    if (message.type == "boot") {
+        config[device].deviceReducedSchedule = [];
+        config[device].deviceReducedScheduleSHA = "";
+    }
+    else if (message.type == "success") {
         if (message.next == "send_chunk") {
+            clearTimeout(config[device].dataTimeout);
+            config[device].dataTimeout = null;
             if (config[device].sendingStatus.bufPos <= config[device].sendingStatus.buf.length) {
                 let chunk = config[device].sendingStatus.buf.slice(config[device].sendingStatus.bufPos, config[device].sendingStatus.bufPos + chunkSize);
                 config[device].sendingStatus.bufPos += chunkSize;
@@ -213,14 +235,14 @@ function gotDeviceResponse(device, message) {
                     publishToDevice(device, { command: "app_graphic_stop" });
                 }, 15000);
             } else {
+                clearTimeout(config[device].dataTimeout);
+                config[device].dataTimeout = null;
                 publishToDevice(device, { command: "app_graphic_sent" });
                 hashes[config[device].sendingStatus.currentHash.key] = config[device].sendingStatus.currentHash.hash;
                 config[device].sendingStatus.isCurrentlySending = false;
             }
         } else if (message.info == "schedule_received") {
-            config[device].currentReducedSchedule = JSON.parse(message.schedule);
-        } else if (message.next == "send_next") {
-            config[device].sendingStatus.isCurrentlySending = false;
+            config[device].deviceReducedScheduleSHA = message.hash;
         }
     } else if (message.type == "error") {
         console.log(`Receieved error state from device ${device}: ${message.info}`);
@@ -287,6 +309,9 @@ client.on('connect', function () {
                 const update_task = new Task(`${device} update task`, () => {
                     appletUpdateLoop(device)
                 });
+                const schedule_task = new Task(`${device} schedule task`, () => {
+                    scheduleUpdateLoop(device)
+                });
 
                 const update_job = new SimpleIntervalJob(
                     { seconds: 0.1, runImmediately: true },
@@ -294,7 +319,14 @@ client.on('connect', function () {
                     { id: `update_${device}` }
                 );
 
+                const schedule_job = new SimpleIntervalJob(
+                    { seconds: 3, runImmediately: true },
+                    schedule_task,
+                    { id: `schedule_${device}` }
+                );
+
                 scheduler.addSimpleIntervalJob(update_job);
+                scheduler.addSimpleIntervalJob(schedule_job);
 
                 const dog = new Watchdog(20000);
                 dog.on('reset', () => {
@@ -344,3 +376,4 @@ process.once('SIGTERM', function (code) {
     console.log('SIGTERM received...');
     client.end(false);
 });
+
