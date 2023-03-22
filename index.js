@@ -35,7 +35,7 @@ if (APPLET_FOLDER === undefined) {
 }
 
 const scheduler = new ToadScheduler();
-let chunkSize = 19950;
+let chunkSize = 10000;
 
 let config = {};
 let hashes = {};
@@ -56,19 +56,7 @@ while ((file = directory.readSync()) !== null) {
     }
 
     let schedule = fs.readFileSync(scheduleFilePath);
-    let reducedSchedule = [];
     schedule = JSON.parse(schedule);
-    schedule.forEach((v, i) => {
-        schedule[i]["uuid"] = i.toString();
-
-        reducedSchedule.push({
-            d: schedule[i].duration,
-            s: false,
-            p: false
-        })
-    })
-
-
 
     config[device] = {
         currentApplet: -1,
@@ -86,16 +74,13 @@ while ((file = directory.readSync()) !== null) {
         offlineWatchdog: null,
         dataTimeout: null,
         schedule: schedule,
-        reducedSchedule: reducedSchedule,
-        reducedScheduleSHA: "",
-        deviceReducedSchedule: [],
-        deviceReducedScheduleSHA: null,
+        deviceScheduleHash: null,
     }
 }
 
 directory.closeSync()
 
-function publishToDevice(device, obj) {
+function sendDeviceCommand(device, obj) {
     let serializedAsBuffer = JSON.stringify(obj);
     client.publish(`smartmatrix/${device}/command`, serializedAsBuffer);
 }
@@ -107,47 +92,46 @@ async function appletUpdateLoop(device) {
 
     config[device].sendingStatus.isCurrentlySending = true;
     config[device].currentlyUpdatingApplet++;
-    
+
     if (config[device].currentlyUpdatingApplet >= config[device].schedule.length) {
         config[device].currentlyUpdatingApplet = 0;
     }
 
     const applet = config[device].schedule[config[device].currentlyUpdatingApplet];
+    const appletID = config[device].currentlyUpdatingApplet.toString();
+
     const appletExternal = applet.external ?? false;
     let imageData = null;
-    if (appletExternal) {
-        let configValues = [];
-        for (const [k, v] of Object.entries(applet.config)) {
-            if (typeof v === 'object') {
-                configValues.push(`${k}=${encodeURIComponent(JSON.stringify(v))}`);
-            } else {
-                configValues.push(`${k}=${encodeURIComponent(v)}`);
-            }
-        }
-        let confStr = configValues.join("&");
-        let url = `https://prod.tidbyt.com/app-server/preview/${applet.name}.webp?${confStr}`;
 
-        try {
+    try {
+        if (appletExternal) {
+            let configValues = [];
+            for (const [k, v] of Object.entries(applet.config)) {
+                if (typeof v === 'object') {
+                    configValues.push(`${k}=${encodeURIComponent(JSON.stringify(v))}`);
+                } else {
+                    configValues.push(`${k}=${encodeURIComponent(v)}`);
+                }
+            }
+            let confStr = configValues.join("&");
+            let url = `https://prod.tidbyt.com/app-server/preview/${applet.name}.webp?${confStr}`;
+
             imageData = await axios.get(url, {
                 responseType: 'arraybuffer'
             });
             imageData = imageData.data;
-        } catch(e) {
-            config[device].reducedSchedule[config[device].currentlyUpdatingApplet].s = true;
-            config[device].sendingStatus.isCurrentlySending = false;
+        } else {
+            imageData = await render(device, applet.name, applet.config ?? {})
         }
-    } else {
-        imageData = await render(device, applet.name, applet.config ?? {}).catch((e) => {
-            config[device].reducedSchedule[config[device].currentlyUpdatingApplet].s = true;
-            config[device].sendingStatus.isCurrentlySending = false;
-        })
+    } catch (e) {
+
     }
 
-    if (config[device].sendingStatus.isCurrentlySending) {
-        config[device].reducedSchedule[config[device].currentlyUpdatingApplet].s = false;
+    if (imageData != null) {
+        config[device].schedule[config[device].currentlyUpdatingApplet].skip = false;
 
         //Check if applet needs to be pushed to device before sending
-        const hashKey = `${device}-${applet.uuid}`;
+        const hashKey = `${device}-${appletID}`;
         const hash = crypto.createHash('sha256').update(Buffer.from(imageData)).digest('base64');
         let needsUpdated = false;
         if (Object.keys(hashes).indexOf(hashKey) != -1) {
@@ -165,20 +149,23 @@ async function appletUpdateLoop(device) {
             config[device].sendingStatus.currentHash.key = hashKey;
             config[device].sendingStatus.currentHash.hash = hash;
 
-            publishToDevice(device, {
+            sendDeviceCommand(device, {
                 command: "send_app_graphic",
                 params: {
-                    appid: applet.uuid
+                    appid: appletID
                 }
             });
 
             config[device].dataTimeout = setTimeout(() => {
-                publishToDevice(device, { command: "app_graphic_stop" });
+                sendDeviceCommand(device, { command: "app_graphic_stop" });
                 config[device].sendingStatus.isCurrentlySending = false;
             }, 5000);
         } else {
             config[device].sendingStatus.isCurrentlySending = false;
         }
+    } else {
+        config[device].schedule[config[device].currentlyUpdatingApplet].skip = true;
+        config[device].sendingStatus.isCurrentlySending = false;
     }
 }
 
@@ -187,20 +174,23 @@ async function scheduleUpdateLoop(device) {
         return;
     }
 
-    if (JSON.stringify(config[device].reducedSchedule) !== JSON.stringify(config[device].deviceReducedSchedule)) {
-        let sched = config[device].reducedSchedule;
-        config[device].reducedScheduleSHA = crypto.createHash('sha256').update(Buffer.from(JSON.stringify(sched))).digest('base64');
+    let currentReducedSchedule = [];
+    for(const v of config[device].schedule) {
+        let reducedScheduleItem = {
+            d: v.duration ?? 5,
+            s: v.skip ?? false,
+            p: v.pinned ?? false
+        };
+        currentReducedSchedule.push(reducedScheduleItem);
     }
 
-    const dev = config[device];
-    if (dev.reducedScheduleSHA != dev.deviceReducedScheduleSHA) {
+    let currentReducedScheduleSHA = crypto.createHash('sha256').update(Buffer.from(JSON.stringify(currentReducedSchedule))).digest('base64');
+    if (currentReducedScheduleSHA != config[device].deviceScheduleHash) {
         let msg = {
-            items: dev.reducedSchedule,
-            hash: dev.reducedScheduleSHA
+            items: currentReducedSchedule,
+            hash: currentReducedScheduleSHA
         }
         client.publish(`smartmatrix/${device}/schedule`, JSON.stringify(msg));
-    } else {
-        config[device].deviceReducedSchedule = JSON.parse(JSON.stringify(config[device].reducedSchedule));
     }
 }
 
@@ -216,7 +206,7 @@ function deviceConnected(device) {
 
 function gotDeviceResponse(device, message) {
     config[device].offlineWatchdog.feed();
-    if(config[device].connected == false) {
+    if (config[device].connected == false) {
         deviceConnected(device);
     }
     if (message.type == "boot") {
@@ -232,18 +222,18 @@ function gotDeviceResponse(device, message) {
                 config[device].sendingStatus.bufPos += chunkSize;
                 client.publish(`smartmatrix/${device}/applet`, chunk);
                 config[device].dataTimeout = setTimeout(() => {
-                    publishToDevice(device, { command: "app_graphic_stop" });
+                    sendDeviceCommand(device, { command: "app_graphic_stop" });
                     config[device].sendingStatus.isCurrentlySending = false;
                 }, 5000);
             } else {
                 clearTimeout(config[device].dataTimeout);
                 config[device].dataTimeout = null;
-                publishToDevice(device, { command: "app_graphic_sent" });
+                sendDeviceCommand(device, { command: "app_graphic_sent" });
                 hashes[config[device].sendingStatus.currentHash.key] = config[device].sendingStatus.currentHash.hash;
                 config[device].sendingStatus.isCurrentlySending = false;
             }
         } else if (message.info == "schedule_received") {
-            config[device].deviceReducedScheduleSHA = message.hash;
+            config[device].deviceScheduleHash = message.hash;
         }
     } else if (message.type == "error") {
         console.log(`Receieved error state from device ${device}: ${message.info}`);
@@ -302,7 +292,7 @@ client.on('connect', function () {
     for (const [device, _] of Object.entries(config)) {
         client.subscribe(`smartmatrix/${device}/status`, function (err) {
             if (!err) {
-                publishToDevice(device, {
+                sendDeviceCommand(device, {
                     command: "ping"
                 });
 
@@ -315,13 +305,13 @@ client.on('connect', function () {
                 });
 
                 const update_job = new SimpleIntervalJob(
-                    { seconds: 0.1, runImmediately: true },
+                    { seconds: 0.5, runImmediately: true },
                     update_task,
                     { id: `update_${device}` }
                 );
 
                 const schedule_job = new SimpleIntervalJob(
-                    { seconds: 3, runImmediately: true },
+                    { seconds: 5, runImmediately: true },
                     schedule_task,
                     { id: `schedule_${device}` }
                 );
@@ -370,8 +360,8 @@ client.on('message', function (topic, message) {
             try {
                 let data = JSON.parse(message);
                 gotDeviceResponse(device, data);
-            } catch(e) {
-                
+            } catch (e) {
+
             }
         }
     }
