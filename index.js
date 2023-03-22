@@ -175,7 +175,7 @@ async function appletUpdateLoop(device) {
             config[device].dataTimeout = setTimeout(() => {
                 publishToDevice(device, { command: "app_graphic_stop" });
                 config[device].sendingStatus.isCurrentlySending = false;
-            }, 15000);
+            }, 5000);
         } else {
             config[device].sendingStatus.isCurrentlySending = false;
         }
@@ -233,7 +233,8 @@ function gotDeviceResponse(device, message) {
                 client.publish(`smartmatrix/${device}/applet`, chunk);
                 config[device].dataTimeout = setTimeout(() => {
                     publishToDevice(device, { command: "app_graphic_stop" });
-                }, 15000);
+                    config[device].sendingStatus.isCurrentlySending = false;
+                }, 5000);
             } else {
                 clearTimeout(config[device].dataTimeout);
                 config[device].dataTimeout = null;
