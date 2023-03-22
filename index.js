@@ -110,13 +110,12 @@ async function appletUpdateLoop(device) {
 
     config[device].sendingStatus.isCurrentlySending = true;
     config[device].currentlyUpdatingApplet++;
-
-    if (config[device].currentlyUpdatingApplet >= (config[device].schedule.length - 1)) {
+    
+    if (config[device].currentlyUpdatingApplet >= config[device].schedule.length) {
         config[device].currentlyUpdatingApplet = 0;
     }
 
     const applet = config[device].schedule[config[device].currentlyUpdatingApplet];
-
     const appletExternal = applet.external ?? false;
     let imageData = null;
     if (appletExternal) {
@@ -345,8 +344,3 @@ process.once('SIGTERM', function (code) {
     console.log('SIGTERM received...');
     client.end(false);
 });
-
-setTimeout(() => {
-    config["2F2B1C"].reducedSchedule[1].p = true;
-    //console.log(config);
-}, 5000);
