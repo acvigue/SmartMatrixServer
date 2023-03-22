@@ -218,7 +218,7 @@ function gotDeviceResponse(device, message) {
                 config[device].sendingStatus.isCurrentlySending = false;
             }
         } else if (message.info == "schedule_received") {
-            config[device].currentReducedSchedule = JSON.parse(JSON.stringify(config[device].reducedSchedule));
+            config[device].currentReducedSchedule = JSON.parse(message.schedule);
         } else if (message.next == "send_next") {
             config[device].sendingStatus.isCurrentlySending = false;
         }
