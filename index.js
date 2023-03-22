@@ -366,8 +366,12 @@ client.on('message', function (topic, message) {
     if (topic.indexOf("status") != -1) {
         const device = topic.split("/")[1];
         if (Object.keys(config).indexOf(device) != -1) {
-            let data = JSON.parse(message);
-            gotDeviceResponse(device, data);
+            try {
+                let data = JSON.parse(message);
+                gotDeviceResponse(device, data);
+            } catch(e) {
+                
+            }
         }
     }
 })
