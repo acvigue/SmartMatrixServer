@@ -38,7 +38,6 @@ const scheduler = new ToadScheduler();
 let chunkSize = 10000;
 
 let config = {};
-let hashes = {};
 
 const directory = fs.opendirSync(CONFIG_FOLDER)
 let file;
@@ -59,22 +58,20 @@ while ((file = directory.readSync()) !== null) {
     schedule = JSON.parse(schedule);
 
     config[device] = {
-        currentApplet: -1,
+        currentApplet: 0,
         currentlyUpdatingApplet: -1,
         connected: false,
-        sendingStatus: {
+        updateState: {
             bufPos: 0,
             buf: null,
-            isCurrentlySending: false,
-            currentHash: {
-                key: "",
-                hash: ""
-            }
+            inProgress: false,
+            currentHash: ""
         },
         offlineWatchdog: null,
         dataTimeout: null,
         schedule: schedule,
         deviceScheduleHash: null,
+        appletHashes: []
     }
 }
 
@@ -85,21 +82,21 @@ function sendDeviceCommand(device, obj) {
     client.publish(`smartmatrix/${device}/command`, serializedAsBuffer);
 }
 
-async function appletUpdateLoop(device) {
-    if (config[device].sendingStatus.isCurrentlySending || config[device].connected == false) {
+async function updateAppletLoop(device) {
+    if (config[device].updateState.inProgress || config[device].connected == false) {
         return;
     }
 
-    config[device].sendingStatus.isCurrentlySending = true;
+    config[device].updateState.inProgress = true;
     config[device].currentlyUpdatingApplet++;
 
     if (config[device].currentlyUpdatingApplet >= config[device].schedule.length) {
         config[device].currentlyUpdatingApplet = 0;
     }
 
-    const applet = config[device].schedule[config[device].currentlyUpdatingApplet];
     const appletID = config[device].currentlyUpdatingApplet.toString();
 
+    const applet = config[device].schedule[config[device].currentlyUpdatingApplet];
     const appletExternal = applet.external ?? false;
     let imageData = null;
 
@@ -131,23 +128,13 @@ async function appletUpdateLoop(device) {
         config[device].schedule[config[device].currentlyUpdatingApplet].skip = false;
 
         //Check if applet needs to be pushed to device before sending
-        const hashKey = `${device}-${appletID}`;
         const hash = crypto.createHash('sha256').update(Buffer.from(imageData)).digest('base64');
-        let needsUpdated = false;
-        if (Object.keys(hashes).indexOf(hashKey) != -1) {
-            if (hashes[hashKey] != hash) {
-                needsUpdated = true;
-            }
-        } else {
-            needsUpdated = true;
-        }
 
-        if (needsUpdated) {
+        if (config[device].appletHashes[appletID] != hash) {
             //Applet needs to be updated.
-            config[device].sendingStatus.buf = new Uint8Array(imageData);
-            config[device].sendingStatus.bufPos = 0;
-            config[device].sendingStatus.currentHash.key = hashKey;
-            config[device].sendingStatus.currentHash.hash = hash;
+            config[device].updateState.buf = new Uint8Array(imageData);
+            config[device].updateState.bufPos = 0;
+            config[device].updateState.currentHash = hash;
 
             sendDeviceCommand(device, {
                 command: "send_app_graphic",
@@ -158,14 +145,14 @@ async function appletUpdateLoop(device) {
 
             config[device].dataTimeout = setTimeout(() => {
                 sendDeviceCommand(device, { command: "app_graphic_stop" });
-                config[device].sendingStatus.isCurrentlySending = false;
+                config[device].updateState.inProgress = false;
             }, 5000);
         } else {
-            config[device].sendingStatus.isCurrentlySending = false;
+            config[device].updateState.inProgress = false;
         }
     } else {
         config[device].schedule[config[device].currentlyUpdatingApplet].skip = true;
-        config[device].sendingStatus.isCurrentlySending = false;
+        config[device].updateState.inProgress = false;
     }
 }
 
@@ -175,7 +162,7 @@ async function scheduleUpdateLoop(device) {
     }
 
     let currentReducedSchedule = [];
-    for(const v of config[device].schedule) {
+    for (const v of config[device].schedule) {
         let reducedScheduleItem = {
             d: v.duration ?? 5,
             s: v.skip ?? false,
@@ -198,9 +185,9 @@ function deviceConnected(device) {
     config[device].currentApplet = -1;
     config[device].currentlyUpdatingApplet = -1;
     config[device].connected = true;
-    config[device].sendingStatus.isCurrentlySending = false;
-    config[device].sendingStatus.bufPos = 0;
-    config[device].sendingStatus.buf = null;
+    config[device].updateState.inProgress = false;
+    config[device].updateState.bufPos = 0;
+    config[device].updateState.buf = null;
 }
 
 
@@ -210,32 +197,45 @@ function gotDeviceResponse(device, message) {
         deviceConnected(device);
     }
     if (message.type == "boot") {
+        //On boot, send schedule and updated applets
         config[device].deviceScheduleHash = "";
+        config[device].appletHashes = [];
     }
     else if (message.type == "success") {
-        if (message.next == "send_chunk") {
+        if (message.info == "applet_displayed") {
+            config[device].currentApplet = message.appid;
+        } else if (message.info == "applet_update") {
             clearTimeout(config[device].dataTimeout);
             config[device].dataTimeout = null;
-            if (config[device].sendingStatus.bufPos <= config[device].sendingStatus.buf.length) {
-                let chunk = config[device].sendingStatus.buf.slice(config[device].sendingStatus.bufPos, config[device].sendingStatus.bufPos + chunkSize);
-                config[device].sendingStatus.bufPos += chunkSize;
-                client.publish(`smartmatrix/${device}/applet`, chunk);
-                config[device].dataTimeout = setTimeout(() => {
-                    sendDeviceCommand(device, { command: "app_graphic_stop" });
-                    config[device].sendingStatus.isCurrentlySending = false;
-                }, 5000);
-            } else {
-                clearTimeout(config[device].dataTimeout);
-                config[device].dataTimeout = null;
-                sendDeviceCommand(device, { command: "app_graphic_sent" });
-                hashes[config[device].sendingStatus.currentHash.key] = config[device].sendingStatus.currentHash.hash;
-                config[device].sendingStatus.isCurrentlySending = false;
+            if (message.next == "send_chunk") {
+                if (config[device].updateState.bufPos <= config[device].updateState.buf.length) {
+                    let chunk = config[device].updateState.buf.slice(config[device].updateState.bufPos, config[device].updateState.bufPos + chunkSize);
+                    config[device].updateState.bufPos += chunkSize;
+                    client.publish(`smartmatrix/${device}/applet`, chunk);
+                    config[device].dataTimeout = setTimeout(() => {
+                        sendDeviceCommand(device, { command: "app_graphic_stop" });
+                        config[device].updateState.inProgress = false;
+                    }, 5000);
+                } else {
+                    sendDeviceCommand(device, { command: "app_graphic_sent" });
+                    config[device].appletHashes[config[device].currentlyUpdatingApplet] = config[device].updateState.currentHash;
+                    config[device].updateState.inProgress = false;
+                }
             }
         } else if (message.info == "schedule_received") {
             config[device].deviceScheduleHash = message.hash;
         }
     } else if (message.type == "error") {
         console.log(`Receieved error state from device ${device}: ${message.info}`);
+        if (message.info == "malformed_applet") {
+            config[device].appletHashes[message.appid] = null;
+            let check = setInterval(function() {
+                if(!config[device].updateState.inProgress) {
+                    config[device].currentlyUpdatingApplet = message.appid - 1;
+                    clearInterval(check);
+                }
+            }, 100);
+        }
     }
 }
 
@@ -297,7 +297,7 @@ client.on('connect', function () {
 
                 //Setup job to work on device.
                 const update_task = new Task(`${device} update task`, () => {
-                    appletUpdateLoop(device)
+                    updateAppletLoop(device)
                 });
                 const schedule_task = new Task(`${device} schedule task`, () => {
                     scheduleUpdateLoop(device)
@@ -322,9 +322,9 @@ client.on('connect', function () {
                 dog.on('reset', () => {
                     console.log(`Device ${device} disconnected.`);
                     config[device].connected = false;
-                    config[device].sendingStatus.isCurrentlySending = false;
-                    config[device].sendingStatus.bufPos = 0;
-                    config[device].sendingStatus.buf = null;
+                    config[device].updateState.inProgress = false;
+                    config[device].updateState.bufPos = 0;
+                    config[device].updateState.buf = null;
                 })
                 dog.on('feed', () => {
                     config[device].connected = true;
