@@ -274,7 +274,6 @@ function render(device, name, config) {
         renderCommand.on('close', (code) => {
             if (code == 0) {
                 if (outputError.indexOf("skip_execution") == -1 && fs.existsSync(`/tmp/${device}-${manifest.fileName}.webp`)) {
-                    fs.writeFileSync(`${manifest.fileName}.webp`, fs.readFileSync(`/tmp/${device}-${manifest.fileName}.webp`));
                     resolve(fs.readFileSync(`/tmp/${device}-${manifest.fileName}.webp`));
                 } else {
                     reject("Applet requested to skip execution...");
@@ -301,7 +300,7 @@ client.on('connect', function () {
                     try {
                         updateAppletLoop(device)
                     } catch(e) {
-                        
+
                     }
                 });
                 const schedule_task = new Task(`${device} schedule task`, () => {
