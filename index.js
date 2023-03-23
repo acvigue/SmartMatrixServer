@@ -210,8 +210,7 @@ function gotDeviceResponse(device, message) {
         deviceConnected(device);
     }
     if (message.type == "boot") {
-        config[device].deviceReducedSchedule = [];
-        config[device].deviceReducedScheduleSHA = "";
+        config[device].deviceScheduleHash = "";
     }
     else if (message.type == "success") {
         if (message.next == "send_chunk") {
