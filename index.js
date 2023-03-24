@@ -146,7 +146,7 @@ async function updateAppletLoop(device) {
             config[device].dataTimeout = setTimeout(() => {
                 sendDeviceCommand(device, { command: "app_graphic_stop" });
                 config[device].updateState.inProgress = false;
-            }, 5000);
+            }, 10000);
         } else {
             config[device].updateState.inProgress = false;
         }
@@ -215,7 +215,7 @@ function gotDeviceResponse(device, message) {
                     config[device].dataTimeout = setTimeout(() => {
                         sendDeviceCommand(device, { command: "app_graphic_stop" });
                         config[device].updateState.inProgress = false;
-                    }, 5000);
+                    }, 10000);
                 } else {
                     sendDeviceCommand(device, { command: "app_graphic_sent" });
                     config[device].appletHashes[config[device].currentlyUpdatingApplet] = config[device].updateState.currentHash;
