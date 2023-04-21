@@ -25,7 +25,5 @@ jobs:
         with:
           push: true
           builder: ${{ steps.buildx.outputs.name }}
-          platforms: linux/arm64,linux/amd64
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new
+          platforms: linux/amd64
           tags: ghcr.io/${{ github.repository_owner }}/smartmatrixserver:main
