@@ -1,34 +1,18 @@
-const mqtt = require('mqtt')
 const fs = require('fs');
 const { ToadScheduler, SimpleIntervalJob, Task } = require('toad-scheduler');
-const { Watchdog } = require("watchdog");
 const { spawn } = require("child_process");
 const YAML = require("yaml");
 const axios = require('axios');
-const { v4: uuidv4 } = require('uuid');
 var crypto = require('crypto');
 const { createClient } = require('redis');
 const { S3Client, PutObjectCommand, ListObjectsCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { IoTDataPlaneClient, UpdateThingShadowCommand } = require("@aws-sdk/client-iot-data-plane");
-/*
-
-Required environment variables for sprite-sender to function
-MQTT_[HOSTNAME,USERNAME,PASSWORD]
-REDIS_[HOSTNAME,USERNAME,PASSWORD],
-[SPRITE]_FOLDER
-
-*/
 
 const serverConfig = {
     redis: {
         hostname: process.env.REDIS_HOSTNAME,
         username: process.env.REDIS_USERNAME,
         password: process.env.REDIS_PASSWORD
-    },
-    mqtt: {
-        hostname: process.env.MQTT_HOSTNAME,
-        username: process.env.MQTT_USERNAME,
-        password: process.env.MQTT_PASSWORD
     },
     aws: {
         accessKeyID: process.env.AWS_KEY_ID,
