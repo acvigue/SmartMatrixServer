@@ -7,103 +7,125 @@ const YAML = require("yaml");
 const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
 var crypto = require('crypto');
-
+const { createClient } = require('redis');
+const { S3Client, PutObjectCommand, ListObjectsCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
+const { IoTDataPlaneClient, UpdateThingShadowCommand } = require("@aws-sdk/client-iot-data-plane");
 /*
 
-Required environment variables for applet-sender to function
+Required environment variables for sprite-sender to function
 MQTT_[HOSTNAME,USERNAME,PASSWORD]
 REDIS_[HOSTNAME,USERNAME,PASSWORD],
-[CONFIG,APPLET]_FOLDER
+[SPRITE]_FOLDER
 
 */
 
-const client = mqtt.connect(process.env.MQTT_HOSTNAME, {
-    username: process.env.MQTT_USERNAME,
-    password: process.env.MQTT_PASSWORD
-});
-
-let { CONFIG_FOLDER } = process.env
-if (CONFIG_FOLDER === undefined) {
-    console.log("CONFIG_FOLDER not set, using `/config` ...");
-    CONFIG_FOLDER = "/config";
+const serverConfig = {
+    redis: {
+        hostname: process.env.REDIS_HOSTNAME,
+        username: process.env.REDIS_USERNAME,
+        password: process.env.REDIS_PASSWORD
+    },
+    mqtt: {
+        hostname: process.env.MQTT_HOSTNAME,
+        username: process.env.MQTT_USERNAME,
+        password: process.env.MQTT_PASSWORD
+    },
+    aws: {
+        accessKeyID: process.env.AWS_KEY_ID,
+        secretAccessKey: process.env.AWS_KEY_SECRET
+    },
+    tidbyt: {
+        refreshToken:  process.env.TIDBYT_REFRESH_JWT,
+        apiKey: process.env.TIDBYT_API_KEY
+    }
 }
 
-let { APPLET_FOLDER } = process.env
-if (APPLET_FOLDER === undefined) {
-    console.log("APPLET_FOLDER not set, using `/applets` ...");
-    APPLET_FOLDER = "/applets";
+const redis = createClient({
+    url: `redis://${serverConfig.redis.username}:${serverConfig.redis.password}@${serverConfig.redis.hostname}`
+});
+
+redis.on("error", (e) => {
+    console.error(e);
+})
+
+const S3 = new S3Client({
+    region: "us-east-1",
+    credentials: {
+        accessKeyId: serverConfig.aws.accessKeyID,
+        secretAccessKey: serverConfig.aws.secretAccessKey,
+    },
+});
+
+const iotDataPlaneClient = new IoTDataPlaneClient({
+    region: "us-east-1",
+    credentials: {
+        accessKeyId: serverConfig.aws.accessKeyID,
+        secretAccessKey: serverConfig.aws.secretAccessKey,
+    },
+});
+
+let { SPRITE_FOLDER } = process.env
+if (SPRITE_FOLDER === undefined) {
+    console.log("SPRITE_FOLDER not set, using `/sprites` ...");
+    SPRITE_FOLDER = "/sprites";
 }
 
 const scheduler = new ToadScheduler();
-let chunkSize = 1000000;
 
 let config = {};
 
-const directory = fs.opendirSync(CONFIG_FOLDER)
-let file;
+async function updateDeviceConfigs() {
+    const listObjectsCommandParams = {
+        Bucket: "smartmatrixconfigs",
+    };
+    const resp = await S3.send(new ListObjectsCommand(listObjectsCommandParams));
+    const items = resp.Contents;
+    for (const item of items) {
+        const deviceID = item.Key.split(".")[0];
+        const getObjectCommandParams = { // GetObjectRequest
+            Bucket: "smartmatrixconfigs", // required
+            Key: item.Key, // required
+        };
+        const objectData = await S3.send(new GetObjectCommand(getObjectCommandParams));
+        objectData.Body.transformToString("utf-8").then((val) => {
+            const jsonVal = JSON.parse(val);
+            if (config[deviceID] == undefined) {
+                config[deviceID] = {
+                    schedule: [],
+                    currentlyUpdatingSprite: 0
+                }
+                schedulerRegisterNewDevice(deviceID);
+            }
+            config[deviceID].schedule = jsonVal;
+            for (var i = 0; i < jsonVal.length; i++) {
 
-while ((file = directory.readSync()) !== null) {
-    let device = file.name.split(".")[0];
-    if (device.indexOf("/") != -1) {
-        device = device.split("/")[1];
-    }
-
-    let scheduleFilePath = `${CONFIG_FOLDER}/${device.toUpperCase()}.json`;
-    if (!fs.existsSync(scheduleFilePath)) {
-        console.log("Schedule file for device does not exist!");
-        return;
-    }
-
-    let schedule = fs.readFileSync(scheduleFilePath);
-    schedule = JSON.parse(schedule);
-
-    config[device] = {
-        currentApplet: 0,
-        currentlyUpdatingApplet: -1,
-        connected: false,
-        updateState: {
-            bufPos: 0,
-            buf: null,
-            inProgress: false,
-            currentHash: ""
-        },
-        offlineWatchdog: null,
-        dataTimeout: null,
-        schedule: schedule,
-        deviceScheduleHash: null,
-        appletHashes: []
+                config[deviceID].schedule[i].is_skipped = false;
+                config[deviceID].schedule[i].is_pinned = false;
+            }
+        })
     }
 }
 
-directory.closeSync()
+async function updateSpriteLoop(device) {
+    config[device].currentlyUpdatingSprite++;
 
-function sendDeviceCommand(device, obj) {
-    let serializedAsBuffer = JSON.stringify(obj);
-    client.publish(`smartmatrix/${device}/command`, serializedAsBuffer);
-}
+    if (config[device].currentlyUpdatingSprite >= config[device].schedule.length) {
+        config[device].currentlyUpdatingSprite = 0;
+    }
 
-async function updateAppletLoop(device) {
-    if (config[device].updateState.inProgress || config[device].connected == false) {
+    const spriteID = config[device].currentlyUpdatingSprite.toString();
+    const sprite = config[device].schedule[config[device].currentlyUpdatingSprite];
+    if (sprite == undefined) {
         return;
     }
 
-    config[device].updateState.inProgress = true;
-    config[device].currentlyUpdatingApplet++;
-
-    if (config[device].currentlyUpdatingApplet >= config[device].schedule.length) {
-        config[device].currentlyUpdatingApplet = 0;
-    }
-
-    const appletID = config[device].currentlyUpdatingApplet.toString();
-
-    const applet = config[device].schedule[config[device].currentlyUpdatingApplet];
-    const appletExternal = applet.external ?? false;
+    const spriteExternal = sprite.external ?? false;
     let imageData = null;
 
     try {
-        if (appletExternal) {
+        if (spriteExternal) {
             let configValues = [];
-            for (const [k, v] of Object.entries(applet.config)) {
+            for (const [k, v] of Object.entries(sprite.config)) {
                 if (typeof v === 'object') {
                     configValues.push(`${k}=${encodeURIComponent(JSON.stringify(v))}`);
                 } else {
@@ -111,48 +133,38 @@ async function updateAppletLoop(device) {
                 }
             }
             let confStr = configValues.join("&");
-            let url = `https://prod.tidbyt.com/app-server/preview/${applet.name}.webp?${confStr}`;
-
+            let url = `https://prod.tidbyt.com/app-server/preview/${sprite.name}.webp?${confStr}`;
+            const apiToken = await getTidbytRendererToken();
             imageData = await axios.get(url, {
-                responseType: 'arraybuffer'
+                responseType: 'arraybuffer',
+                headers: {
+                    "Authorization": `Bearer ${apiToken}`
+                }
             });
             imageData = imageData.data;
         } else {
-            imageData = await render(device, applet.name, applet.config ?? {})
+            imageData = await render(device, sprite.name, sprite.config ?? {})
         }
     } catch (e) {
-
+        console.error(e)
     }
 
     if (imageData != null) {
-        config[device].schedule[config[device].currentlyUpdatingApplet].skip = false;
+        config[device].schedule[config[device].currentlyUpdatingSprite].is_skipped = false;
 
-        //Check if applet needs to be pushed to device before sending
-        const hash = crypto.createHash('sha256').update(Buffer.from(imageData)).digest('base64');
-
-        if (config[device].appletHashes[appletID] != hash) {
-            //Applet needs to be updated.
-            config[device].updateState.buf = new Uint8Array(imageData);
-            config[device].updateState.bufPos = 0;
-            config[device].updateState.currentHash = hash;
-
-            sendDeviceCommand(device, {
-                command: "send_app_graphic",
-                params: {
-                    appid: appletID
-                }
+        //Check if sprite needs to be pushed to device before sending
+        const newHash = crypto.createHash("md5").update(imageData).digest("base64");
+        const currentHash = await redis.get(`smx:device:${device}:sprites:${spriteID}`);
+        if (currentHash != newHash) {
+            await S3.send(
+                new PutObjectCommand({ Bucket: "smartmatrixsprites", Key: `${device}/${spriteID}.webp`, Body: imageData })
+            );
+            await redis.set(`smx:device:${device}:sprites:${spriteID}`, newHash, {
+                EX: 3600 + Math.floor(Math.random() * 1800) + 1
             });
-
-            config[device].dataTimeout = setTimeout(() => {
-                sendDeviceCommand(device, { command: "app_graphic_stop" });
-                config[device].updateState.inProgress = false;
-            }, 10000);
-        } else {
-            config[device].updateState.inProgress = false;
         }
     } else {
-        config[device].schedule[config[device].currentlyUpdatingApplet].skip = true;
-        config[device].updateState.inProgress = false;
+        config[device].schedule[config[device].currentlyUpdatingSprite].is_skipped = true;
     }
 }
 
@@ -164,77 +176,34 @@ async function scheduleUpdateLoop(device) {
     let currentReducedSchedule = [];
     for (const v of config[device].schedule) {
         let reducedScheduleItem = {
-            d: v.duration ?? 5,
-            s: v.skip ?? false,
-            p: v.pinned ?? false
+            duration: v.duration ?? 5,
+            skipped: v.is_skipped ?? false,
+            pinned: v.pinned ?? false
         };
         currentReducedSchedule.push(reducedScheduleItem);
     }
 
-    let currentReducedScheduleSHA = crypto.createHash('sha256').update(Buffer.from(JSON.stringify(currentReducedSchedule))).digest('base64');
-    if (currentReducedScheduleSHA != config[device].deviceScheduleHash) {
-        let msg = {
-            items: currentReducedSchedule,
-            hash: currentReducedScheduleSHA
-        }
-        client.publish(`smartmatrix/${device}/schedule`, JSON.stringify(msg));
-    }
-}
-
-function deviceConnected(device) {
-    config[device].currentApplet = -1;
-    config[device].currentlyUpdatingApplet = -1;
-    config[device].connected = true;
-    config[device].updateState.inProgress = false;
-    config[device].updateState.bufPos = 0;
-    config[device].updateState.buf = null;
-}
-
-
-function gotDeviceResponse(device, message) {
-    config[device].offlineWatchdog.feed();
-    if (config[device].connected == false) {
-        deviceConnected(device);
-    }
-    if (message.type == "boot") {
-        //On boot, send schedule and updated applets
-        config[device].deviceScheduleHash = "";
-        config[device].appletHashes = [];
-    }
-    else if (message.type == "success") {
-        if (message.info == "applet_displayed") {
-            config[device].currentApplet = message.appid;
-        } else if (message.info == "applet_update") {
-            clearTimeout(config[device].dataTimeout);
-            config[device].dataTimeout = null;
-            if (message.next == "send_chunk") {
-                if (config[device].updateState.bufPos <= config[device].updateState.buf.length) {
-                    let chunk = config[device].updateState.buf.slice(config[device].updateState.bufPos, config[device].updateState.bufPos + chunkSize);
-                    config[device].updateState.bufPos += chunkSize;
-                    client.publish(`smartmatrix/${device}/applet`, chunk);
-                    config[device].dataTimeout = setTimeout(() => {
-                        sendDeviceCommand(device, { command: "app_graphic_stop" });
-                        config[device].updateState.inProgress = false;
-                    }, 10000);
-                } else {
-                    sendDeviceCommand(device, { command: "app_graphic_sent" });
-                    config[device].appletHashes[config[device].currentlyUpdatingApplet] = config[device].updateState.currentHash;
-                    config[device].updateState.inProgress = false;
+    let currentScheduleHash = crypto.createHash('md5').update(Buffer.from(JSON.stringify(currentReducedSchedule))).digest('base64');
+    let deviceScheduleHash = await redis.get(`smx:device:${device}:scheduleHash`);
+    if (currentScheduleHash != deviceScheduleHash) {
+        const newDesiredShadowState = {
+            state: {
+                desired: {
+                    schedule: currentReducedSchedule
                 }
             }
-        } else if (message.info == "schedule_received") {
-            config[device].deviceScheduleHash = message.hash;
-        }
-    } else if (message.type == "error") {
-        console.log(`Receieved error state from device ${device}: ${message.info}`);
-        if (message.info == "malformed_applet") {
-            config[device].appletHashes[message.appid] = null;
-            let check = setInterval(function() {
-                if(!config[device].updateState.inProgress) {
-                    config[device].currentlyUpdatingApplet = message.appid - 1;
-                    clearInterval(check);
-                }
-            }, 100);
+        };
+
+        const updateThingShadowParams = {
+            thingName: device,
+            payload: JSON.stringify(newDesiredShadowState)
+        };
+
+        try {
+            await iotDataPlaneClient.send(new UpdateThingShadowCommand(updateThingShadowParams));
+            await redis.set(`smx:device:${device}:scheduleHash`, currentScheduleHash);
+        } catch (e) {
+            console.error("couldn't update device shadow!", e);
         }
     }
 }
@@ -250,18 +219,18 @@ function render(device, name, config) {
             }
         }
         let outputError = "";
-        let manifest = YAML.parse(fs.readFileSync(`${APPLET_FOLDER}/${name}/manifest.yaml`, 'utf-8'));
-        let appletContents = fs.readFileSync(`${APPLET_FOLDER}/${name}/${manifest.fileName}`).toString();
-        if (process.env.REDIS_HOSTNAME != undefined) {
-            if (appletContents.indexOf(`load("cache.star", "cache")`) != -1) {
-                const redis_connect_string = `cache_redis.connect("${process.env.REDIS_HOSTNAME}", "${process.env.REDIS_USERNAME}", "${process.env.REDIS_PASSWORD}")`
-                appletContents = appletContents.replaceAll(`load("cache.star", "cache")`, `load("cache_redis.star", "cache_redis")\n${redis_connect_string}`);
-                appletContents = appletContents.replaceAll(`cache.`, `cache_redis.`);
+        let manifest = YAML.parse(fs.readFileSync(`${SPRITE_FOLDER}/${name}/manifest.yaml`, 'utf-8'));
+        let spriteContents = fs.readFileSync(`${SPRITE_FOLDER}/${name}/${manifest.fileName}`).toString();
+        if (serverConfig.redis.hostname != undefined && 1 == 0) {
+            if (spriteContents.indexOf(`load("cache.star", "cache")`) != -1) {
+                const redis_connect_string = `cache_redis.connect("${serverConfig.redis.hostname}", "${serverConfig.redis.username}", "${serverConfig.redis.password}")`
+                spriteContents = spriteContents.replaceAll(`load("cache.star", "cache")`, `load("cache_redis.star", "cache_redis")\n${redis_connect_string}`);
+                spriteContents = spriteContents.replaceAll(`cache.`, `cache_redis.`);
             }
         }
-        fs.writeFileSync(`${APPLET_FOLDER}/${name}/${manifest.fileName.replace(".star", ".tmp.star")}`, appletContents);
+        fs.writeFileSync(`${SPRITE_FOLDER}/${name}/${manifest.fileName.replace(".star", ".tmp.star")}`, spriteContents);
 
-        const renderCommand = spawn(`pixlet`, ['render', `${APPLET_FOLDER}/${name}/${manifest.fileName.replace(".star", ".tmp.star")}`, ...configValues, '-o', `/tmp/${device}-${manifest.fileName}.webp`], { timeout: 10000 });
+        const renderCommand = spawn(`pixlet`, ['render', `${SPRITE_FOLDER}/${name}/${manifest.fileName.replace(".star", ".tmp.star")}`, ...configValues, '-o', `/tmp/${device}-${manifest.fileName}.webp`], { timeout: 10000 });
 
         renderCommand.stdout.on('data', (data) => {
             outputError += data
@@ -276,102 +245,79 @@ function render(device, name, config) {
                 if (outputError.indexOf("skip_execution") == -1 && fs.existsSync(`/tmp/${device}-${manifest.fileName}.webp`)) {
                     resolve(fs.readFileSync(`/tmp/${device}-${manifest.fileName}.webp`));
                 } else {
-                    reject("Applet requested to skip execution...");
+                    reject("Sprite requested to skip execution...");
                 }
                 fs.unlinkSync(`/tmp/${device}-${manifest.fileName}.webp`);
             } else {
                 console.error(outputError);
-                reject("Applet failed to render.");
+                reject("Sprite failed to render.");
             }
         });
     })
 }
 
-client.on('connect', function () {
-    for (const [device, _] of Object.entries(config)) {
-        client.subscribe(`smartmatrix/${device}/status`, function (err) {
-            if (!err) {
-                sendDeviceCommand(device, {
-                    command: "ping"
-                });
-
-                //Setup job to work on device.
-                const update_task = new Task(`${device} update task`, () => {
-                    try {
-                        updateAppletLoop(device)
-                    } catch(e) {
-
-                    }
-                });
-                const schedule_task = new Task(`${device} schedule task`, () => {
-                    scheduleUpdateLoop(device)
-                });
-
-                const update_job = new SimpleIntervalJob(
-                    { seconds: 0.5, runImmediately: true },
-                    update_task,
-                    { id: `update_${device}` }
-                );
-
-                const schedule_job = new SimpleIntervalJob(
-                    { seconds: 5, runImmediately: true },
-                    schedule_task,
-                    { id: `schedule_${device}` }
-                );
-
-                scheduler.addSimpleIntervalJob(update_job);
-                scheduler.addSimpleIntervalJob(schedule_job);
-
-                const dog = new Watchdog(20000);
-                dog.on('reset', () => {
-                    console.log(`Device ${device} disconnected.`);
-                    config[device].connected = false;
-                    config[device].updateState.inProgress = false;
-                    config[device].updateState.bufPos = 0;
-                    config[device].updateState.buf = null;
-                })
-                dog.on('feed', () => {
-                    config[device].connected = true;
-                })
-
-                config[device].offlineWatchdog = dog;
-            } else {
-                console.log(`Couldn't subscribe to ${device} status channel.`);
+async function getTidbytRendererToken() {
+    const existingToken = await redis.get("smx:tidbytApiToken");
+    if (existingToken == null) {
+        const refreshTokenBody = `grant_type=refresh_token&refresh_token=${encodeURIComponent(serverConfig.tidbyt.refreshToken)}`;
+        const refreshTokenResponse = await axios.post(`https://securetoken.googleapis.com/v1/token?key=${serverConfig.tidbyt.apiKey}`, refreshTokenBody, {
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded"
             }
-        })
+        });
+        const accessToken = refreshTokenResponse.data.access_token;
+        await redis.set("smx:tidbytApiToken", accessToken, {
+            EX: 3600
+        });
+        return accessToken;
+    } else {
+        return existingToken;
     }
-});
+}
 
-client.on("disconnect", function () {
-    scheduler.stop()
-    client.reconnect();
-});
+async function schedulerRegisterNewDevice(deviceID) {
+    //Setup job to work on device.
+    const update_task = new Task(`${deviceID} update task`, () => {
+        try {
+            updateSpriteLoop(deviceID)
+        } catch (e) {
 
-client.on("error", function () {
-    scheduler.stop();
-    client.reconnect();
-});
-
-client.on("close", function () {
-    scheduler.stop()
-});
-
-client.on('message', function (topic, message) {
-    if (topic.indexOf("status") != -1) {
-        const device = topic.split("/")[1];
-        if (Object.keys(config).indexOf(device) != -1) {
-            try {
-                let data = JSON.parse(message);
-                gotDeviceResponse(device, data);
-            } catch (e) {
-
-            }
         }
-    }
-})
+    });
+    const schedule_task = new Task(`${deviceID} schedule task`, () => {
+        scheduleUpdateLoop(deviceID)
+    });
 
-process.once('SIGTERM', function (code) {
-    console.log('SIGTERM received...');
-    client.end(false);
+    const update_job = new SimpleIntervalJob(
+        { seconds: 0.5, runImmediately: true },
+        update_task,
+        { id: `update_${deviceID}` }
+    );
+
+    const schedule_job = new SimpleIntervalJob(
+        { seconds: 10, runImmediately: true },
+        schedule_task,
+        { id: `schedule_${deviceID}` }
+    );
+
+    scheduler.addSimpleIntervalJob(update_job);
+    scheduler.addSimpleIntervalJob(schedule_job);
+}
+
+const update_configs_task = new Task(`update configs task`, async () => {
+    try {
+        await updateDeviceConfigs();
+    } catch (e) {
+        console.error("couldn't get device configs", e);
+    }
 });
 
+const update_configs_job = new SimpleIntervalJob(
+    { seconds: 30, runImmediately: true },
+    update_configs_task,
+    { id: `update_configs` }
+);
+
+redis.connect().then(() => {
+    scheduler.addSimpleIntervalJob(update_configs_job);
+});
