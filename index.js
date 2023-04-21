@@ -32,6 +32,8 @@ redis.on("error", (e) => {
     console.error(e);
 })
 
+const x = "";
+
 const S3 = new S3Client({
     region: "us-east-1",
     credentials: {
