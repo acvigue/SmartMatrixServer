@@ -275,7 +275,7 @@ async function schedulerRegisterNewDevice(deviceID) {
     });
 
     const update_job = new SimpleIntervalJob(
-        { seconds: 0.5, runImmediately: true },
+        { seconds: 2, runImmediately: true },
         update_task,
         { id: `update_${deviceID}` }
     );
