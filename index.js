@@ -1,3 +1,5 @@
+require('dotenv').config()
+
 const fs = require('fs');
 const { ToadScheduler, SimpleIntervalJob, Task } = require('toad-scheduler');
 const { spawn } = require("child_process");
@@ -19,7 +21,7 @@ const serverConfig = {
         secretAccessKey: process.env.AWS_KEY_SECRET
     },
     tidbyt: {
-        refreshToken:  process.env.TIDBYT_REFRESH_JWT,
+        refreshToken: process.env.TIDBYT_REFRESH_JWT,
         apiKey: process.env.TIDBYT_API_KEY
     }
 }
@@ -80,7 +82,6 @@ async function updateDeviceConfigs() {
                     schedule: [],
                     currentlyUpdatingSprite: 0
                 }
-                schedulerRegisterNewDevice(deviceID);
             }
             config[deviceID].schedule = jsonVal;
             for (var i = 0; i < jsonVal.length; i++) {
@@ -88,19 +89,14 @@ async function updateDeviceConfigs() {
                 config[deviceID].schedule[i].is_skipped = false;
                 config[deviceID].schedule[i].is_pinned = false;
             }
+
+            schedulerRegisterNewDevice(deviceID);
         })
     }
 }
 
-async function updateSpriteLoop(device) {
-    config[device].currentlyUpdatingSprite++;
-
-    if (config[device].currentlyUpdatingSprite >= config[device].schedule.length) {
-        config[device].currentlyUpdatingSprite = 0;
-    }
-
-    const spriteID = config[device].currentlyUpdatingSprite.toString();
-    const sprite = config[device].schedule[config[device].currentlyUpdatingSprite];
+async function updateDeviceSprite(device, spriteID) {
+    const sprite = config[device].schedule[spriteID];
     if (sprite == undefined) {
         return;
     }
@@ -132,11 +128,11 @@ async function updateSpriteLoop(device) {
             imageData = await render(device, sprite.name, sprite.config ?? {})
         }
     } catch (e) {
-        console.error(e)
+
     }
 
     if (imageData != null) {
-        config[device].schedule[config[device].currentlyUpdatingSprite].is_skipped = false;
+        config[device].schedule[spriteID].is_skipped = false;
 
         //Check if sprite needs to be pushed to device before sending
         const newHash = crypto.createHash("md5").update(imageData).digest("base64");
@@ -150,7 +146,7 @@ async function updateSpriteLoop(device) {
             });
         }
     } else {
-        config[device].schedule[config[device].currentlyUpdatingSprite].is_skipped = true;
+        config[device].schedule[spriteID].is_skipped = true;
     }
 }
 
@@ -207,7 +203,8 @@ function render(device, name, config) {
         let outputError = "";
         let manifest = YAML.parse(fs.readFileSync(`${SPRITE_FOLDER}/${name}/manifest.yaml`, 'utf-8'));
         let spriteContents = fs.readFileSync(`${SPRITE_FOLDER}/${name}/${manifest.fileName}`).toString();
-        if (serverConfig.redis.hostname != undefined && 1 == 0) {
+
+        if (serverConfig.redis.hostname != undefined) {
             if (spriteContents.indexOf(`load("cache.star", "cache")`) != -1) {
                 const redis_connect_string = `cache_redis.connect("${serverConfig.redis.hostname}", "${serverConfig.redis.username}", "${serverConfig.redis.password}")`
                 spriteContents = spriteContents.replaceAll(`load("cache.star", "cache")`, `load("cache_redis.star", "cache_redis")\n${redis_connect_string}`);
@@ -228,12 +225,20 @@ function render(device, name, config) {
 
         renderCommand.on('close', (code) => {
             if (code == 0) {
-                if (outputError.indexOf("skip_execution") == -1 && fs.existsSync(`/tmp/${device}-${manifest.fileName}.webp`)) {
-                    resolve(fs.readFileSync(`/tmp/${device}-${manifest.fileName}.webp`));
+                if (outputError.indexOf("skip_execution") == -1) {
+                    if (fs.existsSync(`/tmp/${device}-${manifest.fileName}.webp`)) {
+                        const fileContents = fs.readFileSync(`/tmp/${device}-${manifest.fileName}.webp`);
+                        fs.unlinkSync(`/tmp/${device}-${manifest.fileName}.webp`);
+                        resolve(fileContents);
+                    } else {
+                        reject("Sprite not found on disk...");
+                    }
                 } else {
+                    if (fs.existsSync(`/tmp/${device}-${manifest.fileName}.webp`)) {
+                        fs.unlinkSync(`/tmp/${device}-${manifest.fileName}.webp`);
+                    }
                     reject("Sprite requested to skip execution...");
                 }
-                fs.unlinkSync(`/tmp/${device}-${manifest.fileName}.webp`);
             } else {
                 console.error(outputError);
                 reject("Sprite failed to render.");
@@ -263,22 +268,37 @@ async function getTidbytRendererToken() {
 
 async function schedulerRegisterNewDevice(deviceID) {
     //Setup job to work on device.
-    const update_task = new Task(`${deviceID} update task`, () => {
-        try {
-            updateSpriteLoop(deviceID)
-        } catch (e) {
-
+    const maxApplets = 100;
+    for (let i = 0; i < maxApplets; i++) {
+        const jobName = `sprite${i}_${deviceID}`;
+        if (scheduler.existsById(jobName)) {
+            scheduler.removeById(jobName);
         }
-    });
+    }
+
+    if (scheduler.existsById(`schedule_${deviceID}`)) {
+        scheduler.removeById(`schedule_${deviceID}`);
+    }
+
+    for (let i = 0; i < config[deviceID].schedule.length; i++) {
+        const update_task = new Task(`${deviceID} update sprite ${i} task`, () => {
+            try {
+                updateDeviceSprite(deviceID, i);
+            } catch (e) {
+
+            }
+        });
+        const update_job = new SimpleIntervalJob(
+            { seconds: 2, runImmediately: true },
+            update_task,
+            { id: `sprite${i}_${deviceID}` }
+        );
+        scheduler.addSimpleIntervalJob(update_job);
+    }
+
     const schedule_task = new Task(`${deviceID} schedule task`, () => {
         scheduleUpdateLoop(deviceID)
     });
-
-    const update_job = new SimpleIntervalJob(
-        { seconds: 2, runImmediately: true },
-        update_task,
-        { id: `update_${deviceID}` }
-    );
 
     const schedule_job = new SimpleIntervalJob(
         { seconds: 10, runImmediately: true },
@@ -286,7 +306,6 @@ async function schedulerRegisterNewDevice(deviceID) {
         { id: `schedule_${deviceID}` }
     );
 
-    scheduler.addSimpleIntervalJob(update_job);
     scheduler.addSimpleIntervalJob(schedule_job);
 }
 
