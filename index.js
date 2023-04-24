@@ -8,7 +8,7 @@ const axios = require('axios');
 var crypto = require('crypto');
 const { createClient } = require('redis');
 const { S3Client, PutObjectCommand, ListObjectsCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
-const { IoTDataPlaneClient, UpdateThingShadowCommand } = require("@aws-sdk/client-iot-data-plane");
+const { IoTDataPlaneClient, UpdateThingShadowCommand, PublishCommand } = require("@aws-sdk/client-iot-data-plane");
 
 const serverConfig = {
     redis: {
@@ -115,7 +115,7 @@ async function updateDeviceSprite(device, spriteID) {
                 }
             }
             let confStr = configValues.join("&");
-            let url = `https://prod.tidbyt.com/app-server/preview/${sprite.name}.webp?${confStr}`;
+            let url = `https://prod.tidbyt.com/app-server/preview/${sprite.name}.webp?${confStr}&v=${Date.now()}`;
             const apiToken = await getTidbytRendererToken();
             imageData = await axios.get(url, {
                 responseType: 'arraybuffer',
@@ -135,14 +135,26 @@ async function updateDeviceSprite(device, spriteID) {
         config[device].schedule[spriteID].is_skipped = false;
 
         //Check if sprite needs to be pushed to device before sending
-        const newHash = crypto.createHash("md5").update(imageData).digest("base64");
+        const newHash = crypto.createHash("sha256").update(imageData).digest("hex");
         const currentHash = await redis.get(`smx:device:${device}:sprites:${spriteID}`);
         if (currentHash != newHash) {
-            await S3.send(
-                new PutObjectCommand({ Bucket: "smartmatrixsprites", Key: `${device}/${spriteID}.webp`, Body: imageData })
-            );
+            const message = JSON.stringify({
+                spriteID: spriteID,
+                spriteSize: imageData.length,
+                encodedSpriteSize: imageData.toString("base64").length,
+                data: imageData.toString("base64")
+            });
+    
+            const publishParams = {
+                topic: `smartmatrix/${device}/sprite_delivery`, // required
+                qos: 0,
+                retain: false,
+                payload: Buffer.from(message)
+            };
+            
+            await iotDataPlaneClient.send(new PublishCommand(publishParams));
             await redis.set(`smx:device:${device}:sprites:${spriteID}`, newHash, {
-                EX: 3600 + Math.floor(Math.random() * 1800) + 1
+                EX: 3600 * 6
             });
         }
     } else {
@@ -288,8 +300,9 @@ async function schedulerRegisterNewDevice(deviceID) {
 
             }
         });
+        const spriteUpdateInterval = (config[deviceID].schedule[i].external ?? false) ? 5 : 2;
         const update_job = new SimpleIntervalJob(
-            { seconds: 2, runImmediately: true },
+            { seconds: spriteUpdateInterval, runImmediately: true },
             update_task,
             { id: `sprite${i}_${deviceID}` }
         );
@@ -318,7 +331,7 @@ const update_configs_task = new Task(`update configs task`, async () => {
 });
 
 const update_configs_job = new SimpleIntervalJob(
-    { seconds: 30, runImmediately: true },
+    { seconds: 3600, runImmediately: true },
     update_configs_task,
     { id: `update_configs` }
 );
