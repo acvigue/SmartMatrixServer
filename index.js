@@ -1,7 +1,6 @@
 require('dotenv').config()
 
 const fs = require('fs');
-const { ToadScheduler, SimpleIntervalJob, Task } = require('toad-scheduler');
 const { spawn } = require("child_process");
 const YAML = require("yaml");
 const axios = require('axios');
@@ -50,8 +49,6 @@ if (DEVICE_FOLDER === undefined) {
     DEVICE_FOLDER = "/devices";
 }
 
-const scheduler = new ToadScheduler();
-
 let config = {};
 
 async function updateDeviceConfigs() {
@@ -75,7 +72,7 @@ async function updateDeviceConfigs() {
             }
 
             mqttClient.subscribe(`smartmatrix/${deviceID}/status`);
-            schedulerRegisterNewDevice(deviceID);
+            mqttClient.subscribe(`smartmatrix/${deviceID}/error`);
         }
     }
 }
@@ -121,7 +118,7 @@ async function updateDeviceSprite(device, spriteID) {
 
         //Check if sprite needs to be pushed to device before sending
         const newHash = crypto.createHash("sha256").update(imageData).digest("hex");
-        const currentHash = await redis.get(`smx:device:${device}:sprites:${spriteID}`);
+        const currentHash = await redis.get(`smx:device:${device}:spriteHashes:${spriteID}`);
         if (currentHash != newHash) {
             const message = JSON.stringify({
                 spriteID: spriteID,
@@ -131,16 +128,18 @@ async function updateDeviceSprite(device, spriteID) {
             });
 
             mqttClient.publish(`smartmatrix/${device}/sprite_delivery`, message);
-            await redis.set(`smx:device:${device}:sprites:${spriteID}`, newHash, {
+            await redis.set(`smx:device:${device}:spriteHashes:${spriteID}`, newHash, {
                 EX: 3600 * 6
             });
         }
     } else {
         config[device].schedule[spriteID].is_skipped = true;
     }
+
+    await updateDeviceSchedule(device);
 }
 
-async function scheduleUpdateLoop(device) {
+async function updateDeviceSchedule(device) {
     if (config[device].connected == false) {
         return;
     }
@@ -239,50 +238,6 @@ async function getTidbytRendererToken() {
     }
 }
 
-async function schedulerRegisterNewDevice(deviceID) {
-    //Setup job to work on device.
-    const maxApplets = 100;
-    for (let i = 0; i < maxApplets; i++) {
-        const jobName = `sprite${i}_${deviceID}`;
-        if (scheduler.existsById(jobName)) {
-            scheduler.removeById(jobName);
-        }
-    }
-
-    if (scheduler.existsById(`schedule_${deviceID}`)) {
-        scheduler.removeById(`schedule_${deviceID}`);
-    }
-
-    for (let i = 0; i < config[deviceID].schedule.length; i++) {
-        const update_task = new Task(`${deviceID} update sprite ${i} task`, () => {
-            try {
-                updateDeviceSprite(deviceID, i);
-            } catch (e) {
-
-            }
-        });
-        const spriteUpdateInterval = 5;
-        const update_job = new SimpleIntervalJob(
-            { seconds: spriteUpdateInterval, runImmediately: true },
-            update_task,
-            { id: `sprite${i}_${deviceID}` }
-        );
-        setTimeout(() => { scheduler.addSimpleIntervalJob(update_job); }, i * 400);
-    }
-
-    const schedule_task = new Task(`${deviceID} schedule task`, () => {
-        scheduleUpdateLoop(deviceID)
-    });
-
-    const schedule_job = new SimpleIntervalJob(
-        { seconds: 10, runImmediately: true },
-        schedule_task,
-        { id: `schedule_${deviceID}` }
-    );
-
-    scheduler.addSimpleIntervalJob(schedule_job);
-}
-
 mqttClient.on('connect', async () => {
     redis.connect().then(() => {
         console.log("connected");
@@ -292,10 +247,35 @@ mqttClient.on('connect', async () => {
 
 mqttClient.on('message', async (topic, payload) => {
     const device = topic.split("/")[1];
-    if (topic.includes("status")) {
-        if (payload.toString() == "get_schedule") {
-            await redis.del(`smx:device:${device}:scheduleHash`);
+    try {
+        if (topic.includes("status")) {
+            payload = JSON.parse(payload);
+            if (payload.type == "get_schedule") {
+                await redis.del(`smx:device:${device}:scheduleHash`);
+                updateDeviceSchedule(device);
+            } else if (payload.type == "report") {
+                const currentSpriteID = payload.currentSpriteID;
+                const nextSpriteID = payload.nextSpriteID;
+
+                setTimeout(() => {
+                    updateDeviceSprite(device, nextSpriteID).catch((e) => {
+                        console.error(`couldn't update sprite ${nextSpriteID} for ${device}: `, e);
+                    })
+                }, (config[device].schedule[currentSpriteID].duration * 1000) - 2000);
+            }
+        } else if (topic.includes("error")) {
+            payload = JSON.parse(payload);
+            const erroredSpriteID = payload.spriteID;
+            await redis.del(`smx:device:${device}:spriteHashes:${erroredSpriteID}`);
+
+            setTimeout(() => {
+                updateDeviceSprite(device, erroredSpriteID).catch((e) => {
+                    console.error(`couldn't update sprite ${erroredSpriteID} for ${device}: `, e);
+                })
+            }, 100);
         }
+    } catch (e) {
+        console.error(`couldn't parse message ${payload} from ${device}: `, e);
     }
 })
 
