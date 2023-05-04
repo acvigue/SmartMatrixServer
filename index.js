@@ -261,13 +261,13 @@ async function schedulerRegisterNewDevice(deviceID) {
 
             }
         });
-        const spriteUpdateInterval = (config[deviceID].schedule[i].external ?? false) ? 5 : 2;
+        const spriteUpdateInterval = 5;
         const update_job = new SimpleIntervalJob(
             { seconds: spriteUpdateInterval, runImmediately: true },
             update_task,
             { id: `sprite${i}_${deviceID}` }
         );
-        scheduler.addSimpleIntervalJob(update_job);
+        setTimeout(() => { scheduler.addSimpleIntervalJob(update_job); }, i * 400);
     }
 
     const schedule_task = new Task(`${deviceID} schedule task`, () => {
