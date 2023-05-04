@@ -7,8 +7,7 @@ const YAML = require("yaml");
 const axios = require('axios');
 var crypto = require('crypto');
 const { createClient } = require('redis');
-const { S3Client, PutObjectCommand, ListObjectsCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
-const { IoTDataPlaneClient, UpdateThingShadowCommand, PublishCommand } = require("@aws-sdk/client-iot-data-plane");
+const mqtt = require('mqtt');
 
 const serverConfig = {
     redis: {
@@ -16,15 +15,21 @@ const serverConfig = {
         username: process.env.REDIS_USERNAME,
         password: process.env.REDIS_PASSWORD
     },
-    aws: {
-        accessKeyID: process.env.AWS_KEY_ID,
-        secretAccessKey: process.env.AWS_KEY_SECRET
+    mqtt: {
+        host: process.env.MQTT_HOST,
+        username: process.env.MQTT_USERNAME,
+        password: process.env.MQTT_PASSWORD
     },
     tidbyt: {
         refreshToken: process.env.TIDBYT_REFRESH_JWT,
         apiKey: process.env.TIDBYT_API_KEY
-    }
+    },
 }
+
+const mqttClient = mqtt.connect(serverConfig.mqtt.host, {
+    username: serverConfig.mqtt.username,
+    password: serverConfig.mqtt.password
+});
 
 const redis = createClient({
     url: `redis://${serverConfig.redis.username}:${serverConfig.redis.password}@${serverConfig.redis.hostname}`
@@ -34,28 +39,15 @@ redis.on("error", (e) => {
     console.error(e);
 })
 
-const x = "";
-
-const S3 = new S3Client({
-    region: "us-east-1",
-    credentials: {
-        accessKeyId: serverConfig.aws.accessKeyID,
-        secretAccessKey: serverConfig.aws.secretAccessKey,
-    },
-});
-
-const iotDataPlaneClient = new IoTDataPlaneClient({
-    region: "us-east-1",
-    credentials: {
-        accessKeyId: serverConfig.aws.accessKeyID,
-        secretAccessKey: serverConfig.aws.secretAccessKey,
-    },
-});
-
-let { SPRITE_FOLDER } = process.env
+let { SPRITE_FOLDER, DEVICE_FOLDER } = process.env
 if (SPRITE_FOLDER === undefined) {
     console.log("SPRITE_FOLDER not set, using `/sprites` ...");
     SPRITE_FOLDER = "/sprites";
+}
+
+if (DEVICE_FOLDER === undefined) {
+    console.log("DEVICE_FOLDER not set, using `/devices` ...");
+    DEVICE_FOLDER = "/devices";
 }
 
 const scheduler = new ToadScheduler();
@@ -63,35 +55,28 @@ const scheduler = new ToadScheduler();
 let config = {};
 
 async function updateDeviceConfigs() {
-    const listObjectsCommandParams = {
-        Bucket: "smartmatrixconfigs",
-    };
-    const resp = await S3.send(new ListObjectsCommand(listObjectsCommandParams));
-    const items = resp.Contents;
-    for (const item of items) {
-        const deviceID = item.Key.split(".")[0];
-        const getObjectCommandParams = { // GetObjectRequest
-            Bucket: "smartmatrixconfigs", // required
-            Key: item.Key, // required
-        };
-        const objectData = await S3.send(new GetObjectCommand(getObjectCommandParams));
-        objectData.Body.transformToString("utf-8").then((val) => {
-            const jsonVal = JSON.parse(val);
+    const dir = fs.readdirSync(DEVICE_FOLDER);
+    for (const file of dir) {
+        if (file.includes(".json")) {
+            const deviceID = file.split(".json")[0];
+            const val = JSON.parse(fs.readFileSync(`${DEVICE_FOLDER}/${file}`));
+
             if (config[deviceID] == undefined) {
                 config[deviceID] = {
                     schedule: [],
                     currentlyUpdatingSprite: 0
                 }
             }
-            config[deviceID].schedule = jsonVal;
-            for (var i = 0; i < jsonVal.length; i++) {
+            config[deviceID].schedule = val;
+            for (var i = 0; i < val.length; i++) {
 
                 config[deviceID].schedule[i].is_skipped = false;
                 config[deviceID].schedule[i].is_pinned = false;
             }
 
+            mqttClient.subscribe(`smartmatrix/${deviceID}/status`);
             schedulerRegisterNewDevice(deviceID);
-        })
+        }
     }
 }
 
@@ -144,15 +129,8 @@ async function updateDeviceSprite(device, spriteID) {
                 encodedSpriteSize: imageData.toString("base64").length,
                 data: imageData.toString("base64")
             });
-    
-            const publishParams = {
-                topic: `smartmatrix/${device}/sprite_delivery`, // required
-                qos: 0,
-                retain: false,
-                payload: Buffer.from(message)
-            };
-            
-            await iotDataPlaneClient.send(new PublishCommand(publishParams));
+
+            mqttClient.publish(`smartmatrix/${device}/sprite_delivery`, message);
             await redis.set(`smx:device:${device}:sprites:${spriteID}`, newHash, {
                 EX: 3600 * 6
             });
@@ -180,25 +158,8 @@ async function scheduleUpdateLoop(device) {
     let currentScheduleHash = crypto.createHash('md5').update(Buffer.from(JSON.stringify(currentReducedSchedule))).digest('base64');
     let deviceScheduleHash = await redis.get(`smx:device:${device}:scheduleHash`);
     if (currentScheduleHash != deviceScheduleHash) {
-        const newDesiredShadowState = {
-            state: {
-                desired: {
-                    schedule: currentReducedSchedule
-                }
-            }
-        };
-
-        const updateThingShadowParams = {
-            thingName: device,
-            payload: JSON.stringify(newDesiredShadowState)
-        };
-
-        try {
-            await iotDataPlaneClient.send(new UpdateThingShadowCommand(updateThingShadowParams));
-            await redis.set(`smx:device:${device}:scheduleHash`, currentScheduleHash);
-        } catch (e) {
-            console.error("couldn't update device shadow!", e);
-        }
+        mqttClient.publish(`smartmatrix/${device}/schedule_delivery`, JSON.stringify(currentReducedSchedule));
+        await redis.set(`smx:device:${device}:scheduleHash`, currentScheduleHash);
     }
 }
 
@@ -322,20 +283,22 @@ async function schedulerRegisterNewDevice(deviceID) {
     scheduler.addSimpleIntervalJob(schedule_job);
 }
 
-const update_configs_task = new Task(`update configs task`, async () => {
-    try {
-        await updateDeviceConfigs();
-    } catch (e) {
-        console.error("couldn't get device configs", e);
+mqttClient.on('connect', async () => {
+    redis.connect().then(() => {
+        console.log("connected");
+        updateDeviceConfigs();
+    });
+})
+
+mqttClient.on('message', async (topic, payload) => {
+    const device = topic.split("/")[1];
+    if (topic.includes("status")) {
+        if (payload.toString() == "get_schedule") {
+            await redis.del(`smx:device:${device}:scheduleHash`);
+        }
     }
-});
+})
 
-const update_configs_job = new SimpleIntervalJob(
-    { seconds: 3600, runImmediately: true },
-    update_configs_task,
-    { id: `update_configs` }
-);
-
-redis.connect().then(() => {
-    scheduler.addSimpleIntervalJob(update_configs_job);
-});
+mqttClient.on('disconnect', () => {
+    process.exit(1);
+})
