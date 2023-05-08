@@ -110,7 +110,7 @@ async function updateDeviceSprite(device, spriteID) {
             imageData = await render(device, sprite.name, sprite.config ?? {})
         }
     } catch (e) {
-
+        console.log(e);
     }
 
     if (imageData != null) {
@@ -131,6 +131,9 @@ async function updateDeviceSprite(device, spriteID) {
             await redis.set(`smx:device:${device}:spriteHashes:${spriteID}`, newHash, {
                 EX: 3600 * 6
             });
+            console.log(`update! ${spriteID} for ${device}`);
+        } else {
+            console.log(`skipping update! ${spriteID} for ${device}`);
         }
     } else {
         config[device].schedule[spriteID].is_skipped = true;
@@ -246,6 +249,7 @@ mqttClient.on('connect', async () => {
 })
 
 mqttClient.on('message', async (topic, payload) => {
+    console.log(payload.toString());
     const device = topic.split("/")[1];
     try {
         if (topic.includes("status")) {
@@ -257,11 +261,36 @@ mqttClient.on('message', async (topic, payload) => {
                 const currentSpriteID = payload.currentSpriteID;
                 const nextSpriteID = payload.nextSpriteID;
 
+                if(nextSpriteID > currentSpriteID) {
+                    if(nextSpriteID - currentSpriteID > 1) {
+                        //a sprite was skipped
+                        for(var i = currentSpriteID; i < nextSpriteID; i++) {
+                            setTimeout(() => {
+                                updateDeviceSprite(device, i).catch((e) => {
+                                    console.error(`couldn't update sprite ${i} for ${device}: `, e);
+                                })
+                            }, (i * 1000));
+                        }
+                    }
+                } else {
+                    if(nextSpriteID != 0) {
+                        //a sprite was skipped
+                        for(var i = 0; i < nextSpriteID; i++) {
+                            setTimeout(() => {
+                                updateDeviceSprite(device, i).catch((e) => {
+                                    console.error(`couldn't update sprite ${i} for ${device}: `, e);
+                                })
+                            }, (i * 1000));
+                        }
+                    }
+                }
+
                 setTimeout(() => {
                     updateDeviceSprite(device, nextSpriteID).catch((e) => {
                         console.error(`couldn't update sprite ${nextSpriteID} for ${device}: `, e);
                     })
                 }, (config[device].schedule[currentSpriteID].duration * 1000) - 2000);
+                console.log(`will update ${nextSpriteID} in ${config[device].schedule[currentSpriteID].duration * 1000 - 2000} ms`);
             }
         } else if (topic.includes("error")) {
             payload = JSON.parse(payload);
