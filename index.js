@@ -131,9 +131,6 @@ async function updateDeviceSprite(device, spriteID) {
             await redis.set(`smx:device:${device}:spriteHashes:${spriteID}`, newHash, {
                 EX: 3600 * 6
             });
-            console.log(`update! ${spriteID} for ${device}`);
-        } else {
-            console.log(`skipping update! ${spriteID} for ${device}`);
         }
     } else {
         config[device].schedule[spriteID].is_skipped = true;
@@ -243,13 +240,11 @@ async function getTidbytRendererToken() {
 
 mqttClient.on('connect', async () => {
     redis.connect().then(() => {
-        console.log("connected");
         updateDeviceConfigs();
     });
 })
 
 mqttClient.on('message', async (topic, payload) => {
-    console.log(payload.toString());
     const device = topic.split("/")[1];
     try {
         if (topic.includes("status")) {
@@ -260,37 +255,31 @@ mqttClient.on('message', async (topic, payload) => {
             } else if (payload.type == "report") {
                 const currentSpriteID = payload.currentSpriteID;
                 const nextSpriteID = payload.nextSpriteID;
-
                 if(nextSpriteID > currentSpriteID) {
                     if(nextSpriteID - currentSpriteID > 1) {
-                        //a sprite was skipped
+                        //a sprite was skipped in the middle
                         for(var i = currentSpriteID; i < nextSpriteID; i++) {
-                            setTimeout(() => {
-                                updateDeviceSprite(device, i).catch((e) => {
-                                    console.error(`couldn't update sprite ${i} for ${device}: `, e);
-                                })
-                            }, (i * 1000));
+                            updateDeviceSprite(device, i);
                         }
                     }
                 } else {
                     if(nextSpriteID != 0) {
-                        //a sprite was skipped
+                        //a sprite was skipped at the beginning
                         for(var i = 0; i < nextSpriteID; i++) {
-                            setTimeout(() => {
-                                updateDeviceSprite(device, i).catch((e) => {
-                                    console.error(`couldn't update sprite ${i} for ${device}: `, e);
-                                })
-                            }, (i * 1000));
+                            updateDeviceSprite(device, i);
+                        }
+                    }
+                    if(nextSpriteID == 0 && currentSpriteID != config[device].schedule.length) {
+                        //a sprite was skipped at the end
+                        for(var i = currentSpriteID; i < config[device].schedule.length; i++) {
+                            updateDeviceSprite(device, i);
                         }
                     }
                 }
 
                 setTimeout(() => {
-                    updateDeviceSprite(device, nextSpriteID).catch((e) => {
-                        console.error(`couldn't update sprite ${nextSpriteID} for ${device}: `, e);
-                    })
+                    updateDeviceSprite(device, nextSpriteID)
                 }, (config[device].schedule[currentSpriteID].duration * 1000) - 2000);
-                console.log(`will update ${nextSpriteID} in ${config[device].schedule[currentSpriteID].duration * 1000 - 2000} ms`);
             }
         } else if (topic.includes("error")) {
             payload = JSON.parse(payload);
@@ -298,16 +287,15 @@ mqttClient.on('message', async (topic, payload) => {
             await redis.del(`smx:device:${device}:spriteHashes:${erroredSpriteID}`);
 
             setTimeout(() => {
-                updateDeviceSprite(device, erroredSpriteID).catch((e) => {
-                    console.error(`couldn't update sprite ${erroredSpriteID} for ${device}: `, e);
-                })
+                updateDeviceSprite(device, erroredSpriteID)
             }, 100);
         }
     } catch (e) {
-        console.error(`couldn't parse message ${payload} from ${device}: `, e);
+        console.error(`[main] couldn't parse message ${payload} from ${device}: `, e);
     }
 })
 
 mqttClient.on('disconnect', () => {
+    console.log(`[main] disconnected, cleanly exiting.`);
     process.exit(1);
 })
