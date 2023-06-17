@@ -110,7 +110,9 @@ async function updateDeviceSprite(device, spriteID) {
             imageData = await render(device, sprite.name, sprite.config ?? {})
         }
     } catch (e) {
-        console.log(e);
+        if (!e.includes("Sprite requested to skip execution...")) {
+            console.log(e);
+        }
     }
 
     if (imageData != null) {
@@ -255,23 +257,23 @@ mqttClient.on('message', async (topic, payload) => {
             } else if (payload.type == "report") {
                 const currentSpriteID = payload.currentSpriteID;
                 const nextSpriteID = payload.nextSpriteID;
-                if(nextSpriteID > currentSpriteID) {
-                    if(nextSpriteID - currentSpriteID > 1) {
+                if (nextSpriteID > currentSpriteID) {
+                    if (nextSpriteID - currentSpriteID > 1) {
                         //a sprite was skipped in the middle
-                        for(var i = currentSpriteID; i < nextSpriteID; i++) {
+                        for (var i = currentSpriteID; i < nextSpriteID; i++) {
                             updateDeviceSprite(device, i);
                         }
                     }
                 } else {
-                    if(nextSpriteID != 0) {
+                    if (nextSpriteID != 0) {
                         //a sprite was skipped at the beginning
-                        for(var i = 0; i < nextSpriteID; i++) {
+                        for (var i = 0; i < nextSpriteID; i++) {
                             updateDeviceSprite(device, i);
                         }
                     }
-                    if(nextSpriteID == 0 && currentSpriteID != config[device].schedule.length) {
+                    if (nextSpriteID == 0 && currentSpriteID != config[device].schedule.length) {
                         //a sprite was skipped at the end
-                        for(var i = currentSpriteID; i < config[device].schedule.length; i++) {
+                        for (var i = currentSpriteID; i < config[device].schedule.length; i++) {
                             updateDeviceSprite(device, i);
                         }
                     }
