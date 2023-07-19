@@ -1,17 +1,18 @@
 
 # SmartMatrixServer
 
-> Part of the SmartMatrix project.
+[![GPLv3 License](https://img.shields.io/badge/License-GPL%20v3-yellow.svg)](https://opensource.org/licenses/)
+[![CodeFactor](https://www.codefactor.io/repository/github/acvigue/smartmatrixserver/badge)](https://www.codefactor.io/repository/github/acvigue/smartmatrixserver)
 
-SmartMatrix Server is an application that schedules the delivery of compiled Starlark applets to end devices over MQTT.
+SmartMatrixServer is a MQTT-based helper that serves as the backend for the SmartMatrix-IDF project.
 
-This uses a custom fork of Pixlet to add a compatibility layer for Redis.
+This uses a custom fork of Pixlet to add a compatibility layer for Redis based caching
 
 ## Run with Docker Compose
 
 ```yml
-  panel-led-mqtt:
-    image: ghcr.io/acvigue/plm-applet-sender:main
+  smartmatrixserver:
+    image: ghcr.io/acvigue/smartmatrixserver:main
     volumes:
       - ./applets:/applets
       - ./config:/config
@@ -34,7 +35,7 @@ This uses a custom fork of Pixlet to add a compatibility layer for Redis.
 
 ## Configuration
 
-Files should be stored in the containers attached `/config` directory as `( ESP.getChipID() ).json`
+Files should be stored in the containers attached `/config` directory as `SmartMatrixXXXXXX.json` where XXXXXX is the last 6 characters of the ESP32's MAC address
 
 Array of objects containing name, duration, and any required configuration parameters.
 
