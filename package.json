@@ -9,7 +9,7 @@
     "mqtt": "^4.3.7",
     "qs": "^6.11.1",
     "redis": "^4.6.5",
-    "toad-scheduler": "^2.1.0",
+    "toad-scheduler": "^3.0.0",
     "uuid": "^9.0.0",
     "watchdog": "^0.8.17",
     "yaml": "^2.2.2"
