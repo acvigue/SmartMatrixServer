@@ -1633,9 +1633,9 @@ strnum@^1.0.5:
   integrity sha512-J8bbNyKKXl5qYcR36TIO8W3mVGVHrmmxsd5PAItGkmyzwJvybiw2IVq5nqd0i4LSNSkB/sx9VHllbfFdr9k1JA==
 
 toad-scheduler@^2.1.0:
-  version "2.1.0"
-  resolved "https://registry.yarnpkg.com/toad-scheduler/-/toad-scheduler-2.1.0.tgz#b18278b38fbbe96f780a218ae57e8d38a65b20da"
-  integrity sha512-U/4DIKy61TSxhpSEbk+v/1Q7vK+ysJLdtAbKVtWiHe0UbIXKQ3Uk/Cp5jHnqctM815zzff9KkRQGr9KxAUCWZA==
+  version "2.3.0"
+  resolved "https://registry.yarnpkg.com/toad-scheduler/-/toad-scheduler-2.3.0.tgz#f6d5c46fd5c7d3f50c3f6e763ff6f73d761cfeaa"
+  integrity sha512-Tl4+tr42ZpWBwKDIG5rdPjdx08TWt7B2UBsmzPuwcQ1uqJg/pY2spymYJJz1NmH/EgddxTppZzJtI+zZrzqDTA==
 
 tslib@^1.11.1:
   version "1.14.1"
