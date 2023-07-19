@@ -176,18 +176,7 @@ function render(device, name, config) {
         }
         let outputError = "";
         let manifest = YAML.parse(fs.readFileSync(`${SPRITE_FOLDER}/${name}/manifest.yaml`, 'utf-8'));
-        let spriteContents = fs.readFileSync(`${SPRITE_FOLDER}/${name}/${manifest.fileName}`).toString();
-
-        if (serverConfig.redis.hostname != undefined) {
-            if (spriteContents.indexOf(`load("cache.star", "cache")`) != -1) {
-                const redis_connect_string = `cache_redis.connect("${serverConfig.redis.hostname}", "${serverConfig.redis.username}", "${serverConfig.redis.password}")`
-                spriteContents = spriteContents.replaceAll(`load("cache.star", "cache")`, `load("cache_redis.star", "cache_redis")\n${redis_connect_string}`);
-                spriteContents = spriteContents.replaceAll(`cache.`, `cache_redis.`);
-            }
-        }
-        fs.writeFileSync(`${SPRITE_FOLDER}/${name}/${manifest.fileName.replace(".star", ".tmp.star")}`, spriteContents);
-
-        const renderCommand = spawn(`pixlet`, ['render', `${SPRITE_FOLDER}/${name}/${manifest.fileName.replace(".star", ".tmp.star")}`, ...configValues, '-o', `/tmp/${device}-${manifest.fileName}.webp`], { timeout: 10000 });
+        const renderCommand = spawn(`pixlet`, ['render', `${SPRITE_FOLDER}/${name}/${manifest.fileName}`, ...configValues, '-o', `/tmp/${device}-${manifest.fileName}.webp`], { timeout: 10000 });
 
         renderCommand.stdout.on('data', (data) => {
             outputError += data
