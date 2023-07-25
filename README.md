@@ -6,16 +6,14 @@
 
 SmartMatrixServer is a MQTT-based helper that serves as the backend for the SmartMatrix-IDF project.
 
-This uses a custom fork of Pixlet to add a compatibility layer for Redis based caching
-
 ## Run with Docker Compose
 
 ```yml
-  smartmatrixserver:
+  smx:
     image: ghcr.io/acvigue/smartmatrixserver:main
     volumes:
-      - ./applets:/applets
-      - ./config:/config
+      - ./tidbytcommunity/apps:/apps
+      - ./devices:/devices
     environment:
       REDIS_HOSTNAME: redis
       REDIS_USERNAME: default
@@ -23,8 +21,8 @@ This uses a custom fork of Pixlet to add a compatibility layer for Redis based c
       MQTT_HOSTNAME: ~~~~~~~
       MQTT_USERNAME: ~~~~~~~
       MQTT_PASSWORD: ~~~~~~~
-      CONFIG_FOLDER: /config
-      APPLET_FOLDER: /applets
+      DEVICE_FOLDER: /devices
+      SPRITE_FOLDER: /apps
   redis:
     image: redis:alpine
     command: redis-server --requirepass redispassword

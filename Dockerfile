@@ -1,4 +1,4 @@
-FROM node:current-alpine
+FROM node:alpine
 
 RUN apk add --no-cache git openssl go libwebp libwebp-dev alpine-sdk tzdata && \
     git clone https://github.com/tidbyt/pixlet && \
@@ -7,7 +7,7 @@ RUN apk add --no-cache git openssl go libwebp libwebp-dev alpine-sdk tzdata && \
     cp pixlet /bin/pixlet && \
     chmod +x /bin/pixlet && \
     cd / && rm -rf /pixlet /root/go /root/.cache/go-build && \
-    apk del alpine-sdk go libwebp git
+    apk del alpine-sdk go libwebp git libwebp-dev
 
 WORKDIR /app
 COPY . .
