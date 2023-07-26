@@ -85,8 +85,10 @@ async function updateDeviceConfigs() {
         config[deviceID].schedule[i].is_pinned = false;
       }
 
+      console.log(`Initializing device: ${deviceID}`);
       mqttClient.subscribe(`smartmatrix/${deviceID}/status`);
       mqttClient.subscribe(`smartmatrix/${deviceID}/error`);
+      await updateDeviceSchedule(deviceID);
     }
   }
 }
@@ -175,6 +177,7 @@ async function updateDeviceSchedule(device: string) {
     .digest("base64");
   let deviceScheduleHash = await redis.get(`smx:device:${device}:scheduleHash`);
   if (currentScheduleHash != deviceScheduleHash) {
+    console.log(`Publishing updated schedule for ${device}`);
     mqttClient.publish(
       `smartmatrix/${device}/schedule_delivery`,
       JSON.stringify(currentReducedSchedule)
@@ -272,7 +275,9 @@ async function getTidbytRendererToken(): Promise<string> {
 }
 
 mqttClient.on("connect", async () => {
+  console.log("MQTT connection established!");
   redis.connect().then(() => {
+    console.log("Redis connection established!");
     updateDeviceConfigs();
   });
 });
@@ -331,14 +336,18 @@ mqttClient.on("message", async (topic, payload) => {
       }, 100);
     }
   } catch (e) {
-    console.error(
-      `[main] couldn't parse message ${payload} from ${device}: `,
-      e
-    );
+    console.error(`Couldn't parse message ${payload} from ${device}: `, e);
   }
 });
 
 mqttClient.on("disconnect", () => {
-  console.log(`[main] disconnected, cleanly exiting.`);
+  console.log(`MQTT disconnected, exiting...`);
   process.exit(1);
+});
+
+process.on("SIGTERM", async () => {
+  console.info("SIGTERM signal received.");
+  await redis.disconnect()
+  mqttClient.removeAllListeners()
+  mqttClient.end()
 });
