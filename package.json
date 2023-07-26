@@ -5,5 +5,14 @@
     "mqtt": "^4.3.7",
     "redis": "^4.6.5",
     "yaml": "^2.2.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.4.5",
+    "typescript": "^5.1.6"
+  },
+  "scripts": {
+    "start": "NODE_PATH=./build node build/index.js",
+    "build": "tsc -p .",
+    "dev": "nodemon src/index.ts"
   }
 }
