@@ -9,8 +9,6 @@ RUN apk add --no-cache git openssl go libwebp libwebp-dev alpine-sdk tzdata && \
     cd / && rm -rf /pixlet /root/go /root/.cache/go-build && \
     apk del alpine-sdk go libwebp git
 
-RUN npm install -g yarn
-
 WORKDIR /app
 COPY . .
 RUN yarn 
