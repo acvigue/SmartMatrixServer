@@ -13,7 +13,7 @@ RUN npm install -g yarn
 
 WORKDIR /app
 COPY . .
-RUN yarn
+RUN yarn 
 
 ENV NODE_PATH=./build
 
