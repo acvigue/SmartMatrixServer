@@ -8,6 +8,7 @@ import axios from 'axios'
 import { createHash } from 'crypto'
 import { createClient as createRedisClient } from 'redis'
 import { connect as createMQTTClient } from 'mqtt'
+import { type SpriteConfig, type Device } from 'types'
 
 const serverConfig = {
   redis: {
@@ -40,22 +41,14 @@ const redis = createRedisClient({
 })
 
 redis.on('error', (e) => {
-  console.error(e)
+  console.error('Redis client reported error. Stopping', e)
+  process.exit(0)
 })
 
-interface SpriteConfig {
-  name: string
-  duration: number
-  external?: boolean
-  config: Record<string, any>
-  is_skipped: boolean
-  is_pinned: boolean
-}
-
-interface Device {
-  schedule: SpriteConfig[]
-  currentlyUpdatingSprite: number
-}
+mqttClient.on('error', (e) => {
+  console.error('MQTT client reported error. Stopping.', e)
+  cleanExit()
+})
 
 // Config is an object. Keys are device names.
 const config: Record<string, Device> = {}
@@ -65,9 +58,10 @@ async function updateDeviceConfigs (): Promise<void> {
   for (const file of dir) {
     if (file.includes('.json')) {
       const deviceID = file.split('.json')[0]
-      const val = JSON.parse(
+      console.log(`Initializing device: ${deviceID}`)
+      let val = JSON.parse(
         fs.readFileSync(`${serverConfig.folders.devices}/${file}`).toString()
-      )
+      ) as SpriteConfig[]
 
       if (config[deviceID] === undefined) {
         config[deviceID] = {
@@ -75,13 +69,25 @@ async function updateDeviceConfigs (): Promise<void> {
           currentlyUpdatingSprite: 0
         }
       }
+
+      if (
+        serverConfig.tidbyt.apiKey === '' ||
+        serverConfig.tidbyt.refreshToken === ''
+      ) {
+        console.warn(
+          'Missing configuration for TIDBYT_API_KEY and/or TIDBYT_REFRESH_JWT, external sprite rendering disabled.'
+        )
+        val = val.filter((sprite) => {
+          return sprite.external === null || sprite.external === false
+        })
+      }
+
       config[deviceID].schedule = val
       for (let i = 0; i < val.length; i++) {
         config[deviceID].schedule[i].is_skipped = false
         config[deviceID].schedule[i].is_pinned = false
       }
 
-      console.log(`Initializing device: ${deviceID}`)
       mqttClient.subscribe(`smartmatrix/${deviceID}/status`)
       mqttClient.subscribe(`smartmatrix/${deviceID}/error`)
       await updateDeviceSchedule(deviceID)
@@ -338,25 +344,34 @@ mqttClient.on('message', (topic, payload) => {
     } else if (topic.includes('error')) {
       const JSONPayload = JSON.parse(payload.toString())
       const erroredSpriteID = JSONPayload.spriteID
-      void redis.del(`smx:device:${device}:spriteHashes:${erroredSpriteID as string}`)
+      void redis.del(
+        `smx:device:${device}:spriteHashes:${erroredSpriteID as string}`
+      )
 
       setTimeout(() => {
         void updateDeviceSprite(device, erroredSpriteID)
       }, 100)
     }
   } catch (e) {
-    console.error(`Couldn't parse message ${payload.toString()} from ${device}: `, e)
+    console.error(
+      `Couldn't parse message ${payload.toString()} from ${device}: `,
+      e
+    )
   }
 })
 
 mqttClient.on('disconnect', () => {
   console.log('MQTT disconnected, exiting...')
-  process.exit(1)
+  cleanExit()
 })
 
-process.on('SIGTERM', () => {
-  console.info('SIGTERM signal received.')
+function cleanExit (): void {
   void redis.disconnect()
   mqttClient.removeAllListeners()
   mqttClient.end()
+}
+
+process.on('SIGTERM', () => {
+  console.info('SIGTERM signal received.')
+  cleanExit()
 })
