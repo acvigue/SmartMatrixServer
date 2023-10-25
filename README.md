@@ -18,7 +18,7 @@ SmartMatrixServer is a MQTT-based helper that serves as the backend for the Smar
       REDIS_HOSTNAME: redis
       REDIS_USERNAME: default
       REDIS_PASSWORD: redispassword
-      MQTT_HOSTNAME: ~~~~~~~
+      MQTT_HOST: ~~~~~~~
       MQTT_USERNAME: ~~~~~~~
       MQTT_PASSWORD: ~~~~~~~
       DEVICE_FOLDER: /devices
