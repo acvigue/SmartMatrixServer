@@ -12,7 +12,7 @@ SmartMatrixServer is a MQTT-based helper that serves as the backend for the Smar
   smx:
     image: ghcr.io/acvigue/smartmatrixserver:main
     volumes:
-      - ./tidbytcommunity/apps:/apps
+      - ./tidbytcommunity/apps:/sprites
       - ./devices:/devices
     environment:
       REDIS_HOSTNAME: redis
@@ -22,7 +22,7 @@ SmartMatrixServer is a MQTT-based helper that serves as the backend for the Smar
       MQTT_USERNAME: ~~~~~~~
       MQTT_PASSWORD: ~~~~~~~
       DEVICE_FOLDER: /devices
-      SPRITE_FOLDER: /apps
+      SPRITE_FOLDER: /sprites
   redis:
     image: redis:alpine
     command: redis-server --requirepass redispassword
@@ -33,11 +33,11 @@ SmartMatrixServer is a MQTT-based helper that serves as the backend for the Smar
 
 ## Configuration
 
-Files should be stored in the containers attached `/config` directory as `SmartMatrixXXXXXX.json` where XXXXXX is the last 6 characters of the ESP32's MAC address
+Files should be stored in the containers attached `/devices` directory as `SmartMatrixXXXXXX.json` where XXXXXX is the last 6 characters of the ESP32's MAC address
 
 Array of objects containing name, duration, and any required configuration parameters.
 
-Applets must be stored in the container with the format `/applets/[name]/[name].star`
+Applets must be stored in the container with the format `/sprites/[name]/[name].star`
 
 ```json
 [
