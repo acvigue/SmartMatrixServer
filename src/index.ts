@@ -12,18 +12,18 @@ import { type SpriteConfig, type Device } from 'types'
 
 const serverConfig = {
   redis: {
-    hostname: process.env.REDIS_HOSTNAME ?? '',
-    username: process.env.REDIS_USERNAME ?? '',
-    password: process.env.REDIS_PASSWORD ?? ''
+    hostname: process.env.REDIS_HOSTNAME,
+    username: process.env.REDIS_USERNAME,
+    password: process.env.REDIS_PASSWORD
   },
   mqtt: {
-    host: process.env.MQTT_HOST ?? '',
-    username: process.env.MQTT_USERNAME ?? '',
-    password: process.env.MQTT_PASSWORD ?? ''
+    hostname: process.env.MQTT_HOST,
+    username: process.env.MQTT_USERNAME,
+    password: process.env.MQTT_PASSWORD
   },
   tidbyt: {
-    refreshToken: process.env.TIDBYT_REFRESH_JWT ?? '',
-    apiKey: process.env.TIDBYT_API_KEY ?? ''
+    refreshToken: process.env.TIDBYT_REFRESH_JWT,
+    apiKey: process.env.TIDBYT_API_KEY
   },
   folders: {
     devices: process.env.DEVICE_FOLDER ?? '/devices',
@@ -31,13 +31,36 @@ const serverConfig = {
   }
 }
 
-const mqttClient = createMQTTClient(serverConfig.mqtt.host, {
+if (serverConfig.mqtt.hostname === undefined) {
+  console.error('No MQTT server hostname provided!')
+  process.exit(1)
+}
+
+if (serverConfig.redis.hostname === undefined) {
+  console.error('No Redis server hostname provided!')
+  process.exit(1)
+}
+
+if (
+  serverConfig.tidbyt.apiKey === undefined ||
+  serverConfig.tidbyt.refreshToken === undefined
+) {
+  console.warn(
+    'No Tidbyt renderer refresh token or API key provided, external rendering disabled.'
+  )
+}
+
+const mqttClient = createMQTTClient(serverConfig.mqtt.hostname, {
   username: serverConfig.mqtt.username,
   password: serverConfig.mqtt.password
 })
 
 const redis = createRedisClient({
-  url: `redis://${serverConfig.redis.username}:${serverConfig.redis.password}@${serverConfig.redis.hostname}`
+  url: `redis://${serverConfig.redis.username === null ||
+    serverConfig.redis.password === undefined
+    ? ''
+    : `${serverConfig.redis.username}:${serverConfig.redis.password}@`
+    }${serverConfig.redis.hostname}`
 })
 
 redis.on('error', (e) => {
@@ -53,7 +76,7 @@ mqttClient.on('error', (e) => {
 // Config is an object. Keys are device names.
 const config: Record<string, Device> = {}
 
-async function updateDeviceConfigs (): Promise<void> {
+async function updateDeviceConfigs(): Promise<void> {
   const dir = fs.readdirSync(serverConfig.folders.devices)
   for (const file of dir) {
     if (file.includes('.json')) {
@@ -74,9 +97,6 @@ async function updateDeviceConfigs (): Promise<void> {
         serverConfig.tidbyt.apiKey === '' ||
         serverConfig.tidbyt.refreshToken === ''
       ) {
-        console.warn(
-          'Missing configuration for TIDBYT_API_KEY and/or TIDBYT_REFRESH_JWT, external sprite rendering disabled.'
-        )
         val = val.filter((sprite) => {
           return sprite.external === null || sprite.external === false
         })
@@ -95,7 +115,7 @@ async function updateDeviceConfigs (): Promise<void> {
   }
 }
 
-async function updateDeviceSprite (
+async function updateDeviceSprite(
   device: string,
   spriteID: number
 ): Promise<void> {
@@ -118,9 +138,8 @@ async function updateDeviceSprite (
         }
       }
       const confStr = configValues.join('&')
-      const url = `https://prod.tidbyt.com/app-server/preview/${
-        sprite.name
-      }.webp?${confStr}&v=${Date.now()}`
+      const url = `https://prod.tidbyt.com/app-server/preview/${sprite.name
+        }.webp?${confStr}&v=${Date.now()}`
       const apiToken = await getTidbytRendererToken()
       imageData = await axios.get(url, {
         responseType: 'arraybuffer',
@@ -132,7 +151,7 @@ async function updateDeviceSprite (
     } else {
       imageData = await render(device, sprite.name, sprite.config)
     }
-  } catch (e) {}
+  } catch (e) { }
 
   if (imageData != null) {
     config[device].schedule[spriteID].is_skipped = false
@@ -166,7 +185,7 @@ async function updateDeviceSprite (
   await updateDeviceSchedule(device)
 }
 
-async function updateDeviceSchedule (device: string): Promise<void> {
+async function updateDeviceSchedule(device: string): Promise<void> {
   const currentReducedSchedule = []
   for (const v of config[device].schedule) {
     const reducedScheduleItem = {
@@ -193,7 +212,7 @@ async function updateDeviceSchedule (device: string): Promise<void> {
   }
 }
 
-async function render (
+async function render(
   device: string,
   name: string,
   config: any
@@ -263,14 +282,15 @@ async function render (
   })
 }
 
-async function getTidbytRendererToken (): Promise<string> {
+async function getTidbytRendererToken(): Promise<string> {
   const existingToken = await redis.get('smx:tidbytApiToken')
   if (existingToken == null) {
     const refreshTokenBody = `grant_type=refresh_token&refresh_token=${encodeURIComponent(
-      serverConfig.tidbyt.refreshToken
+      serverConfig.tidbyt.refreshToken ?? ''
     )}`
     const refreshTokenResponse = await axios.post(
-      `https://securetoken.googleapis.com/v1/token?key=${serverConfig.tidbyt.apiKey}`,
+      `https://securetoken.googleapis.com/v1/token?key=${serverConfig.tidbyt.apiKey ?? ''
+      }`,
       refreshTokenBody,
       {
         headers: {
@@ -365,7 +385,7 @@ mqttClient.on('disconnect', () => {
   cleanExit()
 })
 
-function cleanExit (): void {
+function cleanExit(): void {
   void redis.disconnect()
   mqttClient.removeAllListeners()
   mqttClient.end()
