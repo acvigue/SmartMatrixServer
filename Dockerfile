@@ -1,6 +1,11 @@
 FROM node:alpine
+
 RUN apk upgrade --no-cache
-RUN apk add --no-cache git openssl go libwebp libwebp-dev alpine-sdk tzdata && \
+
+COPY --from=golang:alpine /usr/local/go/ /usr/local/go/
+ENV PATH="/usr/local/go/bin:${PATH}"
+
+RUN apk add --no-cache git openssl libwebp libwebp-dev alpine-sdk tzdata && \
     git clone https://github.com/tidbyt/pixlet && \
     cd pixlet && \
     make build && \
